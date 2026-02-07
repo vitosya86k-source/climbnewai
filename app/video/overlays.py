@@ -1076,7 +1076,12 @@ class VideoOverlays:
     def draw_full_analysis(self, frame: np.ndarray, landmarks, frame_data: Dict) -> np.ndarray:
         """
         ПОЛНЫЙ АНАЛИЗ - все метрики на одном видео
-        Компактное размещение для соцсетей
+        
+        Визуализация включает:
+        - Цветные кружочки на суставах (напряжение)
+        - Паутинка метрик (левый верхний угол)
+        - Показатели нагрузки (правый верхний угол)
+        - Лого (правый нижний угол)
         """
         h, w = frame.shape[:2]
         result = frame.copy()
@@ -1297,13 +1302,14 @@ class VideoOverlays:
         balance = max(0, min(100, int(balance)))
         
         # Позиция: правый верхний угол
-        start_x = w - 200  # От правого края
-        start_y = 30  # Верхний отступ
-        line_height = 20  # Расстояние между строками
+        start_x = w - 230  # От правого края (увеличено для крупного текста)
+        start_y = 40  # Верхний отступ (увеличено)
+        line_height = 25  # Расстояние между строками (увеличено)
         
-        # Текст (полные надписи)
+        # Текст (увеличен размер)
         font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 0.5
+        font_scale = 0.65  # Увеличено с 0.5
+        thickness = 2  # Толще
         
         indicators = [
             (f"Stability: {stability}%", self._get_indicator_color(stability)),
@@ -1314,9 +1320,9 @@ class VideoOverlays:
         
         for i, (text, color) in enumerate(indicators):
             y = start_y + i * line_height
-            # Тень для читаемости
-            cv2.putText(frame, text, (start_x + 1, y + 1), font, font_scale, (0, 0, 0), 1, cv2.LINE_AA)
-            cv2.putText(frame, text, (start_x, y), font, font_scale, color, 1, cv2.LINE_AA)
+            # Тень для читаемости (чёрная тень толще)
+            cv2.putText(frame, text, (start_x + 2, y + 2), font, font_scale, (0, 0, 0), 3, cv2.LINE_AA)
+            cv2.putText(frame, text, (start_x, y), font, font_scale, color, thickness, cv2.LINE_AA)
     
     def _get_indicator_color(self, value: float) -> Tuple[int, int, int]:
         """Цвет для индикатора по значению (BGR)"""
@@ -1460,10 +1466,11 @@ class VideoOverlays:
         cv2.circle(overlay, (cx, cy), radius + 20, (20, 20, 20), -1)
         cv2.addWeighted(frame, 0.2, overlay, 0.8, 0, frame)
         
-        # === КРУГИ ШКАЛЫ (более заметные) ===
-        for pct in [25, 50, 75, 100]:
+        # === КРУГИ ШКАЛЫ (с шагом 10%: 10, 20, 30... 100) ===
+        for pct in range(10, 101, 10):  # 10%, 20%, 30%... 100%
             r = int(radius * pct / 100)
             thickness = 2 if pct == 100 else 1
+            alpha = 0.8 if pct % 20 == 0 else 0.4  # Каждая 5-я линия ярче
             cv2.circle(frame, (cx, cy), r, (80, 80, 80), thickness)
         
         # === 7 ОСЕЙ (только ASCII для корректного отображения в OpenCV) ===
@@ -1492,8 +1499,8 @@ class VideoOverlays:
             end_y = int(cy + radius * math.sin(angle))
             cv2.line(frame, (cx, cy), (end_x, end_y), (80, 80, 80), 1)
             
-            # Подпись оси (СНАРУЖИ паутинки) - увеличено расстояние
-            label_distance = 40  # Увеличено для радиуса 80
+            # Подпись оси (СНАРУЖИ паутинки, за пределами радиуса)
+            label_distance = radius + 25  # Снаружи паутинки
             label_x = int(cx + label_distance * math.cos(angle))
             label_y = int(cy + label_distance * math.sin(angle))
             # Фон для букв для читаемости
