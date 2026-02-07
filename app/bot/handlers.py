@@ -170,6 +170,23 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         logger.info(f"Видео скачано: {video_path}")
         
+        # Валидация видеофайла (защита от DoS и битых файлов)
+        from app.utils.video_validator import validate_video_file
+        
+        is_valid, error_msg = validate_video_file(video_path)
+        if not is_valid:
+            await status_msg.edit_text(
+                f"❌ Ошибка валидации видео\n\n"
+                f"{error_msg}\n\n"
+                f"💡 Попробуйте другое видео или свяжитесь с поддержкой: @climb_ai"
+            )
+            # Удаляем битый файл
+            try:
+                video_path.unlink(missing_ok=True)
+            except Exception as e:
+                logger.warning(f"Не удалось удалить битый файл: {e}")
+            return
+        
         # Проверка длительности (до 2 мин = 120 с)
         import cv2
         cap = cv2.VideoCapture(str(video_path))

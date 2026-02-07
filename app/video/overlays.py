@@ -240,7 +240,8 @@ class VideoOverlays:
 
             strength = (left_score + right_score) / 2
             return max(0, min(100, strength))
-        except:
+        except (AttributeError, IndexError, ValueError, ZeroDivisionError) as e:
+            logger.debug(f"Ошибка расчёта силы: {e}")
             return 50.0
 
     def _calculate_balance(self, landmarks) -> float:
@@ -264,7 +265,8 @@ class VideoOverlays:
             # Чем меньше отклонение, тем лучше баланс
             balance = 100 - deviation * 500
             return max(0, min(100, balance))
-        except:
+        except (AttributeError, IndexError, ValueError, ZeroDivisionError) as e:
+            logger.debug(f"Ошибка расчёта баланса: {e}")
             return 50.0
 
     def _calculate_coordination(self, landmarks) -> float:
@@ -298,7 +300,8 @@ class VideoOverlays:
 
             coordination = symmetry * 100
             return max(0, min(100, coordination))
-        except:
+        except (AttributeError, IndexError, KeyError, ValueError) as e:
+            logger.debug(f"Ошибка расчёта координации: {e}")
             return 50.0
 
     def _calculate_technique(self, landmarks, frame_data: Dict) -> float:
@@ -310,7 +313,8 @@ class VideoOverlays:
             # Хорошая техника: высокое качество позы, умеренное движение
             technique = pose_quality * 0.6 + (100 - abs(motion - 40)) * 0.4
             return max(0, min(100, technique))
-        except:
+        except (AttributeError, KeyError, ValueError) as e:
+            logger.debug(f"Ошибка расчёта техники: {e}")
             return 50.0
 
     def _calculate_tension(self, landmarks, frame_data: Dict) -> Dict[str, float]:
@@ -429,7 +433,8 @@ class VideoOverlays:
             angle = math.degrees(math.acos(cos_angle))
 
             return angle
-        except:
+        except (AttributeError, IndexError, ValueError, ZeroDivisionError) as e:
+            logger.debug(f"Ошибка расчёта угла: {e}")
             return None
 
     def _get_spine_angle(self, landmarks) -> Optional[float]:
@@ -453,7 +458,8 @@ class VideoOverlays:
 
             angle = math.degrees(math.atan2(abs(dx), abs(dy)))
             return 180 - angle  # Инвертируем для понятности
-        except:
+        except (AttributeError, IndexError, ValueError, ZeroDivisionError) as e:
+            logger.debug(f"Ошибка расчёта угла позвоночника: {e}")
             return None
 
     # ========== ВИЗУАЛИЗАЦИИ ==========

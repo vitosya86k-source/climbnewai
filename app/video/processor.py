@@ -59,59 +59,15 @@ class VideoProcessor:
     - heatmap: тепловая карта позиций
     - trajectory: полная траектория движения
     - holds: зацепы + скелет + связи
+    
+    ВАЖНО: Все объекты с состоянием создаются ВНУТРИ process_video()
+    для изоляции между запросами (защита от race condition)
     """
     
     def __init__(self):
+        """Инициализация только MediaPipe Pose (без состояния)"""
         self.mp_pose = mp.solutions.pose
-        self.pose = self.mp_pose.Pose(
-            static_image_mode=False,
-            model_complexity=MEDIAPIPE_MODEL_COMPLEXITY,
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5
-        )
-        
-        # Базовые анализаторы
-        self.frame_analyzer = FrameAnalyzer()
-        self.fall_detector = FallDetector()
-        self.overlays = VideoOverlays()
-        
-        # BoulderVision компоненты
-        self.bv_metrics = BoulderVisionMetrics(buffer_size=BOULDERVISION_BUFFER_SIZE)
-
-        # Новые алгоритмические анализаторы
-        self.tension_analyzer = BodyTensionAnalyzer()
-        self.injury_predictor = InjuryPredictor()
-        self.nine_box_model = ClimberNineBoxModel()
-        self.route_assessor = RouteAssessor()
-        
-        # НОВЫЕ МОДУЛИ: 7 базовых метрик техники и дополнительные метрики
-        from app.analysis.technique_metrics import TechniqueMetricsAnalyzer
-        from app.analysis.additional_metrics import AdditionalMetricsAnalyzer
-        from app.analysis.swot_generator import SWOTGenerator
-        
-        self.technique_analyzer = TechniqueMetricsAnalyzer()
-        self.additional_analyzer = AdditionalMetricsAnalyzer()
-        self.swot_generator = SWOTGenerator()
-        
-        logger.info("✅ Новые анализаторы метрик техники инициализированы")
-
-        logger.info("✅ Алгоритмические анализаторы инициализированы")
-
-        # Детектор зацепов (инициализируется если есть API ключ)
-        self.holds_detector: Optional[HoldsDetector] = None
-        if ENABLE_HOLD_DETECTION and ROBOFLOW_API_KEY:
-            try:
-                self.holds_detector = HoldsDetector(
-                    api_key=ROBOFLOW_API_KEY,
-                    project_name=ROBOFLOW_PROJECT,
-                    model_version=ROBOFLOW_MODEL_VERSION
-                )
-                logger.info("✅ HoldsDetector инициализирован с Roboflow API")
-            except Exception as e:
-                logger.warning(f"⚠️ Не удалось инициализировать HoldsDetector: {e}")
-                self.holds_detector = None
-        else:
-            logger.info("ℹ️ HoldsDetector отключен (нет ROBOFLOW_API_KEY или ENABLE_HOLD_DETECTION=false)")
+        logger.info("✅ VideoProcessor инициализирован (stateless)")
     
     async def process_video(
         self,
@@ -130,6 +86,51 @@ class VideoProcessor:
         Returns:
             dict с результатами анализа включая BoulderVision метрики
         """
+        # ИЗОЛЯЦИЯ СОСТОЯНИЯ: создаём объекты для каждого запроса
+        # Это защищает от race condition при параллельной обработке
+        pose = self.mp_pose.Pose(
+            static_image_mode=False,
+            model_complexity=MEDIAPIPE_MODEL_COMPLEXITY,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5
+        )
+        
+        frame_analyzer = FrameAnalyzer()
+        fall_detector = FallDetector()
+        overlays = VideoOverlays()
+        bv_metrics = BoulderVisionMetrics(buffer_size=BOULDERVISION_BUFFER_SIZE)
+        tension_analyzer = BodyTensionAnalyzer()
+        injury_predictor = InjuryPredictor()
+        nine_box_model = ClimberNineBoxModel()
+        route_assessor = RouteAssessor()
+        
+        # Импортируем анализаторы
+        from app.analysis.technique_metrics import TechniqueMetricsAnalyzer
+        from app.analysis.additional_metrics import AdditionalMetricsAnalyzer
+        from app.analysis.swot_generator import SWOTGenerator
+        
+        technique_analyzer = TechniqueMetricsAnalyzer()
+        additional_analyzer = AdditionalMetricsAnalyzer()
+        swot_generator = SWOTGenerator()
+        
+        # Детектор зацепов (опционально)
+        holds_detector: Optional[HoldsDetector] = None
+        if ENABLE_HOLD_DETECTION and ROBOFLOW_API_KEY and output_overlay == "holds":
+            try:
+                holds_detector = HoldsDetector(
+                    api_key=ROBOFLOW_API_KEY,
+                    project_name=ROBOFLOW_PROJECT,
+                    model_version=ROBOFLOW_MODEL_VERSION
+                )
+                logger.info("✅ HoldsDetector создан для этого запроса")
+            except Exception as e:
+                logger.warning(f"⚠️ Не удалось создать HoldsDetector: {e}")
+                holds_detector = None
+        
+        cap = None
+        out = None
+        output_path = None
+        
         try:
             logger.info(f"🎬 Начало обработки видео: {video_path}")
             logger.info(f"📊 Тип визуализации: {output_overlay}")
@@ -160,12 +161,12 @@ class VideoProcessor:
             detected_holds: List = []
             holds_detection_interval = 30  # Детектируем зацепы каждые N кадров
             
-            # Сброс состояния анализаторов
-            self.bv_metrics.reset()
-            self.tension_analyzer.reset()
-            if self.holds_detector:
-                self.holds_detector.reset()
-            self.overlays.reset()
+            # Сброс состояния анализаторов (локальные объекты, но на всякий случай)
+            bv_metrics.reset()
+            tension_analyzer.reset()
+            if holds_detector:
+                holds_detector.reset()
+            overlays.reset()
             
             # Обработка кадров
             while cap.isOpened():
@@ -182,17 +183,17 @@ class VideoProcessor:
                     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     
                     # Детекция позы
-                    results = self.pose.process(frame_rgb)
+                    results = pose.process(frame_rgb)
                     
                     # Базовый анализ кадра
-                    frame_data = self.frame_analyzer.analyze_frame(
+                    frame_data = frame_analyzer.analyze_frame(
                         frame_number,
                         results.pose_landmarks,
                         timestamp
                     )
                     
                     # BoulderVision: анализ метрик движения
-                    bv_frame_metrics = self.bv_metrics.process_frame(
+                    bv_frame_metrics = bv_metrics.process_frame(
                         results.pose_landmarks,
                         frame_number,
                         timestamp
@@ -206,29 +207,29 @@ class VideoProcessor:
                     })
                     
                     # Детекция зацепов (если включено и это нужный overlay)
-                    if self.holds_detector and output_overlay == "holds":
+                    if holds_detector and output_overlay == "holds":
                         if frame_number % holds_detection_interval == 0:
-                            detected_holds = self.holds_detector.detect_holds(
+                            detected_holds = holds_detector.detect_holds(
                                 frame, frame_number
                             )
                         
                         # Обновляем взаимодействия с зацепами
                         if detected_holds:
-                            self.holds_detector.update_interactions(
+                            holds_detector.update_interactions(
                                 results.pose_landmarks,
                                 detected_holds,
                                 frame_number
                             )
                     
                     # Проверка на падение
-                    fall_info = self.fall_detector.check_fall(
+                    fall_info = fall_detector.check_fall(
                         frame_data,
-                        self.frame_analyzer.frame_data
+                        frame_analyzer.frame_data
                     )
 
                     # Анализ напряжения (каждый кадр)
                     if results.pose_landmarks:
-                        self.tension_analyzer.analyze_frame(
+                        tension_analyzer.analyze_frame(
                             results.pose_landmarks,
                             frame_number
                         )
@@ -237,50 +238,50 @@ class VideoProcessor:
                         timestamp = frame_number / fps if fps > 0 else frame_number * 0.033
                         
                         # Анализ техники (7 базовых метрик)
-                        technique_metrics = self.technique_analyzer.analyze_frame(
+                        technique_metrics = technique_analyzer.analyze_frame(
                             results.pose_landmarks,
                             frame_number,
                             timestamp,
                             frame_data
                         )
-                        self.overlays.technique_metrics_history.append(technique_metrics)
-                        if len(self.overlays.technique_metrics_history) > 90:
-                            self.overlays.technique_metrics_history.pop(0)
+                        overlays.technique_metrics_history.append(technique_metrics)
+                        if len(overlays.technique_metrics_history) > 90:
+                            overlays.technique_metrics_history.pop(0)
                         
                         # Дополнительные метрики
-                        additional_metrics = self.additional_analyzer.analyze_frame(
+                        additional_metrics = additional_analyzer.analyze_frame(
                             results.pose_landmarks,
                             frame_number,
                             frame_data,
                             technique_metrics
                         )
-                        self.overlays.additional_metrics_history.append(additional_metrics)
-                        if len(self.overlays.additional_metrics_history) > 90:
-                            self.overlays.additional_metrics_history.pop(0)
+                        overlays.additional_metrics_history.append(additional_metrics)
+                        if len(overlays.additional_metrics_history) > 90:
+                            overlays.additional_metrics_history.pop(0)
                         
                         # Обновляем overlays с новыми метриками для визуализации
-                        if self.overlays.technique_metrics_history:
+                        if overlays.technique_metrics_history:
                             # Передаём последние метрики в overlays для паутинки
-                            latest_technique = self.overlays.technique_metrics_history[-1]
+                            latest_technique = overlays.technique_metrics_history[-1]
                             # Обновляем metrics_history для обратной совместимости
-                            self.overlays.metrics_history.append(latest_technique)
-                            if len(self.overlays.metrics_history) > 90:
-                                self.overlays.metrics_history.pop(0)
+                            overlays.metrics_history.append(latest_technique)
+                            if len(overlays.metrics_history) > 90:
+                                overlays.metrics_history.pop(0)
 
                     # Отрисовка выбранного типа визуализации
                     if results.pose_landmarks:
-                        frame = self.overlays.apply_overlay(
+                        frame = overlays.apply_overlay(
                             frame,
                             results.pose_landmarks,
                             output_overlay,
                             frame_data,
-                            holds_detector=self.holds_detector,
+                            holds_detector=holds_detector,
                             holds=detected_holds if output_overlay == "holds" else None
                         )
                     else:
                         # Если landmarks нет, все равно обновляем историю с None
                         # чтобы метрики не терялись
-                        self.overlays._update_history(None, frame.shape[:2], frame_data)
+                        overlays._update_history(None, frame.shape[:2], frame_data)
                     
                     processed_count += 1
                 
@@ -563,15 +564,31 @@ class VideoProcessor:
             return result
             
         except Exception as e:
-            logger.error(f"❌ Ошибка обработки видео: {e}")
+            logger.error(f"❌ Ошибка обработки видео: {e}", exc_info=True)
             raise
         
         finally:
-            if 'cap' in locals():
-                cap.release()
-            if 'out' in locals():
-                out.release()
-            # НЕ закрываем pose - он переиспользуется
+            # КРИТИЧНО: Всегда освобождаем ресурсы, даже при ошибке
+            if cap is not None:
+                try:
+                    cap.release()
+                    logger.debug("✓ VideoCapture released")
+                except Exception as e:
+                    logger.warning(f"Не удалось освободить VideoCapture: {e}")
+            
+            if out is not None:
+                try:
+                    out.release()
+                    logger.debug("✓ VideoWriter released")
+                except Exception as e:
+                    logger.warning(f"Не удалось освободить VideoWriter: {e}")
+            
+            if pose is not None:
+                try:
+                    pose.close()
+                    logger.debug("✓ MediaPipe Pose closed")
+                except Exception as e:
+                    logger.warning(f"Не удалось закрыть MediaPipe Pose: {e}")
     
     def get_available_overlays(self) -> Dict[str, str]:
         """
