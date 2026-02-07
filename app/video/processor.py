@@ -302,27 +302,27 @@ class VideoProcessor:
             logger.info(f"✅ Обработано {processed_count} кадров из {total_frames}")
             
             # Базовая статистика
-            statistics = self.frame_analyzer.get_statistics()
-            best_worst = self.frame_analyzer.find_best_worst_frames()
-            technical_issues = analyze_technical_issues(self.frame_analyzer.frame_data)
+            statistics = frame_analyzer.get_statistics()
+            best_worst = frame_analyzer.find_best_worst_frames()
+            technical_issues = analyze_technical_issues(frame_analyzer.frame_data)
             
             # BoulderVision статистика
-            bv_summary = self.bv_metrics.get_summary()
+            bv_summary = bv_metrics.get_summary()
             
             # Статистика зацепов
             holds_analysis = {}
-            if self.holds_detector:
-                holds_analysis = self.holds_detector.get_hold_analysis(fps)
+            if holds_detector:
+                holds_analysis = holds_detector.get_hold_analysis(fps)
             
             # Генерация CSV
             csv_path = TEMP_DIR / f"analysis_{video_path.stem}.csv"
-            generate_csv_report(self.frame_analyzer.frame_data, csv_path)
+            generate_csv_report(frame_analyzer.frame_data, csv_path)
 
             # ========== НОВЫЕ АЛГОРИТМИЧЕСКИЕ АНАЛИЗЫ ==========
 
             # 1. Анализ напряжения (tension)
             logger.info("Анализ напряжения...")
-            tension_summary = self.tension_analyzer.get_summary()
+            tension_summary = tension_analyzer.get_summary()
 
             # Подготовка video_analysis для других модулей
             video_analysis_temp = {
@@ -332,14 +332,14 @@ class VideoProcessor:
                 'avg_pose_quality': statistics.get('avg_pose_quality', 0),
                 'avg_motion_intensity': statistics.get('avg_motion_intensity', 0),
                 'avg_balance_score': statistics.get('avg_balance_score', 0),
-                'fall_detected': self.fall_detector.fall_detected,
+                'fall_detected': fall_detector.fall_detected,
                 'bouldervision': bv_summary,
                 'tension_analysis': tension_summary
             }
 
             # 2. Прогноз травм
             logger.info("Прогноз травм...")
-            injury_predictions = self.injury_predictor.predict_injuries(
+            injury_predictions = injury_predictor.predict_injuries(
                 tension_summary,
                 video_analysis_temp,
                 duration
@@ -347,7 +347,7 @@ class VideoProcessor:
 
             # 3. Nine-box модель
             logger.info("Nine-box оценка...")
-            nine_box_assessment = self.nine_box_model.assess_climber(
+            nine_box_assessment = nine_box_model.assess_climber(
                 video_analysis_temp,
                 user_profile={}  # Пустой профиль, если не передан
             )
@@ -357,9 +357,9 @@ class VideoProcessor:
             
             # Средние значения метрик техники за всё видео
             avg_technique_metrics = {}
-            if self.overlays.technique_metrics_history:
+            if overlays.technique_metrics_history:
                 for metric_name in ['quiet_feet', 'hip_position', 'diagonal', 'route_reading', 'rhythm', 'dynamic_control', 'grip_release']:
-                    values = [m.get(metric_name, 50.0) for m in self.overlays.technique_metrics_history if metric_name in m]
+                    values = [m.get(metric_name, 50.0) for m in overlays.technique_metrics_history if metric_name in m]
                     if values:
                         avg_technique_metrics[metric_name] = sum(values) / len(values)
                     else:
@@ -373,10 +373,10 @@ class VideoProcessor:
             
             # Средние значения дополнительных метрик
             avg_additional_metrics = {}
-            if self.overlays.additional_metrics_history:
+            if overlays.additional_metrics_history:
                 # Усредняем ВСЕ 8 метрик (включая productivity, economy, balance)
                 for metric_name in ['stability', 'exhaustion', 'arm_efficiency', 'leg_efficiency', 'recovery', 'productivity', 'economy', 'balance']:
-                    values = [m.get(metric_name, 50.0) for m in self.overlays.additional_metrics_history if metric_name in m]
+                    values = [m.get(metric_name, 50.0) for m in overlays.additional_metrics_history if metric_name in m]
                     if values:
                         avg_additional_metrics[metric_name] = sum(values) / len(values)
                     else:
@@ -390,7 +390,7 @@ class VideoProcessor:
             
             # 5. SWOT-анализ
             logger.info("Генерация SWOT-анализа...")
-            swot_analysis = self.swot_generator.generate_swot(
+            swot_analysis = swot_generator.generate_swot(
                 avg_technique_metrics,
                 avg_additional_metrics,
                 tension_summary,
@@ -402,7 +402,7 @@ class VideoProcessor:
             )
             
             # 6. Оценка уровня сложности
-            estimated_grade = self.swot_generator.estimate_grade(avg_technique_metrics)
+            estimated_grade = swot_generator.estimate_grade(avg_technique_metrics)
             
             logger.info(f"✅ Все алгоритмические анализы завершены. Оценка уровня: {estimated_grade}")
 
@@ -423,10 +423,10 @@ class VideoProcessor:
                 'technical_issues': technical_issues,
                 
                 # Падение
-                'fall_detected': self.fall_detector.fall_detected,
-                'fall_frame': self.fall_detector.fall_frame,
-                'fall_timestamp': self.fall_detector.fall_timestamp,
-                'fall_analysis': self.fall_detector.get_fall_analysis(),
+                'fall_detected': fall_detector.fall_detected,
+                'fall_frame': fall_detector.fall_frame,
+                'fall_timestamp': fall_detector.fall_timestamp,
+                'fall_analysis': fall_detector.get_fall_analysis(),
                 
                 # BoulderVision метрики
                 'bouldervision': {
@@ -515,9 +515,9 @@ class VideoProcessor:
                     'avg_pose_quality': statistics.get('avg_pose_quality', 0),
                     'avg_motion_intensity': statistics.get('avg_motion_intensity', 0),
                     'avg_balance_score': statistics.get('avg_balance_score', 0),
-                    'fall_detected': self.fall_detector.fall_detected,
+                    'fall_detected': fall_detector.fall_detected,
                     'bouldervision': {
-                        'velocity_history': self.bv_metrics.all_velocity_ratios[:200] if hasattr(self.bv_metrics, 'all_velocity_ratios') else []
+                        'velocity_history': bv_metrics.all_velocity_ratios[:200] if hasattr(bv_metrics, 'all_velocity_ratios') else []
                     },
                     'tension_analysis': {
                         'zones': tension_summary.get('zones', {})
