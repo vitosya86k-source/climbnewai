@@ -1098,9 +1098,9 @@ class VideoOverlays:
         # Рисуем кружочки с напряжением на ключевых точках
         self._draw_skeleton_with_tension(result, landmarks)
         
-        # === ВЕРХНИЙ ЛЕВЫЙ УГОЛ: Паутинка с 7 метриками техники (смещена вправо от левого края, увеличен отступ сверху) ===
-        spider_center_x = 100  # Смещено вправо от левого края (было 60)
-        spider_center_y = 110  # Увеличен отступ сверху (было 90)
+        # === ПРАВЫЙ ВЕРХНИЙ УГОЛ: Паутинка с 7 метриками техники ===
+        spider_center_x = w - 120  # Правый верхний угол
+        spider_center_y = 120  # Отступ сверху
         
         # === НИЖНИЙ ЛЕВЫЙ УГОЛ: Показатели нагрузки ===
         self._draw_load_indicators(result, landmarks, frame_data)
@@ -1485,9 +1485,10 @@ class VideoOverlays:
             end_y = int(cy + radius * math.sin(angle))
             cv2.line(frame, (cx, cy), (end_x, end_y), (80, 80, 80), 1)
             
-            # Подпись оси (СНАРУЖИ паутинки) - ВЕРНУЛИ БУКВЫ
-            label_x = int(cx + (radius + 30) * math.cos(angle))
-            label_y = int(cy + (radius + 30) * math.sin(angle))
+            # Подпись оси (СНАРУЖИ паутинки) - увеличено расстояние для "Диагональная координация"
+            label_distance = 35  # Увеличено с 30 для предотвращения обрезания текста
+            label_x = int(cx + label_distance * math.cos(angle))
+            label_y = int(cy + label_distance * math.sin(angle))
             # Фон для букв для читаемости
             (text_w, text_h), baseline = cv2.getTextSize(cat, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
             cv2.rectangle(frame, (label_x - text_w//2 - 3, label_y - text_h - 3), 

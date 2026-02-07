@@ -7,24 +7,6 @@ from pathlib import Path
 root_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(root_dir))
 
-# Патч библиотеки: при загрузке файлов не подставлять 20 сек, а использовать наш write_timeout
-def _patch_telegram_media_timeout():
-    from telegram.request import HTTPXRequest
-    from telegram.request._baserequest import DefaultValue
-    _orig_do = HTTPXRequest.do_request
-
-    async def _do_request(self, url, method, request_data=None, read_timeout=DefaultValue,
-                          write_timeout=DefaultValue, connect_timeout=DefaultValue, pool_timeout=DefaultValue):
-        # При загрузке файлов использовать таймаут из клиента (мы задали 1200), а не 20 сек
-        if isinstance(write_timeout, DefaultValue):
-            write_timeout = self._client.timeout.write
-        return await _orig_do(self, url, method, request_data, read_timeout,
-                              write_timeout, connect_timeout, pool_timeout)
-
-    HTTPXRequest.do_request = _do_request
-
-_patch_telegram_media_timeout()
-
 import logging
 from telegram.ext import Application
 
