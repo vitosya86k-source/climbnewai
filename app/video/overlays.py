@@ -1110,8 +1110,8 @@ class VideoOverlays:
         self._draw_skeleton_with_tension(result, landmarks)
         
         # === ЛЕВЫЙ ВЕРХНИЙ УГОЛ: Паутинка с 7 метриками техники ===
-        spider_center_x = 100  # Левый верхний угол
-        spider_center_y = 110  # Отступ сверху
+        spider_center_x = 130  # Отступ слева (было 100)
+        spider_center_y = 140  # Отступ сверху (было 110)
         
         # === ПРАВЫЙ ВЕРХНИЙ УГОЛ: Показатели нагрузки ===
         self._draw_load_indicators(result, landmarks, frame_data)
