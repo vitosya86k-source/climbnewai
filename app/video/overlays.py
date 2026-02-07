@@ -1098,11 +1098,11 @@ class VideoOverlays:
         # Рисуем кружочки с напряжением на ключевых точках
         self._draw_skeleton_with_tension(result, landmarks)
         
-        # === ПРАВЫЙ ВЕРХНИЙ УГОЛ: Паутинка с 7 метриками техники ===
-        spider_center_x = w - 120  # Правый верхний угол
-        spider_center_y = 120  # Отступ сверху
+        # === ЛЕВЫЙ ВЕРХНИЙ УГОЛ: Паутинка с 7 метриками техники ===
+        spider_center_x = 100  # Левый верхний угол
+        spider_center_y = 110  # Отступ сверху
         
-        # === НИЖНИЙ ЛЕВЫЙ УГОЛ: Показатели нагрузки ===
+        # === ПРАВЫЙ ВЕРХНИЙ УГОЛ: Показатели нагрузки ===
         self._draw_load_indicators(result, landmarks, frame_data)
         
         # ВСЕГДА используем новые метрики техники (7 осей)
@@ -1260,7 +1260,7 @@ class VideoOverlays:
     
     def _draw_load_indicators(self, frame: np.ndarray, landmarks, frame_data: Dict):
         """
-        Рисует показатели в нижнем левом углу:
+        Рисует показатели в правом верхнем углу:
         - Стабильность (дрожание/микрокоррекции)
         - Продуктивность (эффект/затраты)
         - Экономичность (минимум лишних движений)
@@ -1290,14 +1290,14 @@ class VideoOverlays:
         economy = max(0, min(100, int(economy)))
         balance = max(0, min(100, int(balance)))
         
-        # Позиция: нижний левый угол (смещено вправо от левого края, без подложки)
-        start_x = 50  # Смещено вправо от левого края (было 8)
-        start_y = h - 75
-        line_height = 20  # Увеличено расстояние между строками
+        # Позиция: правый верхний угол
+        start_x = w - 200  # От правого края
+        start_y = 30  # Верхний отступ
+        line_height = 20  # Расстояние между строками
         
-        # Текст (полные надписи, увеличен размер, уменьшена толщина)
+        # Текст (полные надписи)
         font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 0.5  # Увеличено с 0.45
+        font_scale = 0.5
         
         indicators = [
             (f"Stability: {stability}%", self._get_indicator_color(stability)),
@@ -1308,9 +1308,9 @@ class VideoOverlays:
         
         for i, (text, color) in enumerate(indicators):
             y = start_y + i * line_height
-            # Тень для читаемости (тоньше)
+            # Тень для читаемости
             cv2.putText(frame, text, (start_x + 1, y + 1), font, font_scale, (0, 0, 0), 1, cv2.LINE_AA)
-            cv2.putText(frame, text, (start_x, y), font, font_scale, color, 1, cv2.LINE_AA)  # Толщина 1 вместо 2
+            cv2.putText(frame, text, (start_x, y), font, font_scale, color, 1, cv2.LINE_AA)
     
     def _get_indicator_color(self, value: float) -> Tuple[int, int, int]:
         """Цвет для индикатора по значению (BGR)"""
