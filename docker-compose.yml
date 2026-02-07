@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  bot:
+    build: .
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+    depends_on:
+      - db
+  
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: climbai
+      POSTGRES_PASSWORD: climbai_password
+      POSTGRES_DB: climbai_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+volumes:
+  postgres_data:
+
+

@@ -1,0 +1,38 @@
+# Env and secrets
+.env
+.env.local
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+.cursor/
+
+# Project artifacts
+*.db
+*.sqlite3
+bot.log
+logs/
+data/temp/
+data/uploads/
+*.log
+
+# Build / dist
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# OS
+.DS_Store
+Thumbs.db

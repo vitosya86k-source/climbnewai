@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClimbAI BoulderVision — Анализ техники</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #e8e8e8;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .dashboard {
+            max-width: 900px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 20px;
+            padding: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .logo-icon {
+            width: 48px;
+            height: 48px;
+            background: linear-gradient(135deg, #00d4ff, #0099cc);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+        }
+        
+        .logo-text h1 {
+            font-size: 24px;
+            font-weight: 700;
+            background: linear-gradient(90deg, #00d4ff, #00ff88);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .logo-text span {
+            font-size: 12px;
+            color: #888;
+        }
+        
+        .meta {
+            text-align: right;
+            color: #888;
+            font-size: 13px;
+        }
+        
+        .meta strong {
+            color: #00d4ff;
+        }
+        
+        /* Technique Section */
+        .technique-section {
+            background: rgba(0, 212, 255, 0.05);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 24px;
+            border: 1px solid rgba(0, 212, 255, 0.2);
+        }
+        
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .section-subtitle {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 20px;
+        }
+        
+        .section-subtitle a {
+            color: #00d4ff;
+            text-decoration: none;
+        }
+        
+        .technique-content {
+            display: grid;
+            grid-template-columns: 1fr 220px;
+            gap: 30px;
+        }
+        
+        /* Metrics List */
+        .metrics-list {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        
+        .metric-item {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        
+        .metric-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .metric-name {
+            font-weight: 500;
+            font-size: 14px;
+        }
+        
+        .metric-score {
+            font-weight: 600;
+            font-size: 14px;
+        }
+        
+        .metric-score.excellent { color: #00ff88; }
+        .metric-score.good { color: #88ff00; }
+        .metric-score.medium { color: #ffcc00; }
+        .metric-score.poor { color: #ff6b6b; }
+        
+        .metric-bar {
+            height: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        
+        .metric-bar-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.5s ease;
+        }
+        
+        .metric-bar-fill.excellent { background: linear-gradient(90deg, #00ff88, #00cc6a); }
+        .metric-bar-fill.good { background: linear-gradient(90deg, #88ff00, #66cc00); }
+        .metric-bar-fill.medium { background: linear-gradient(90deg, #ffcc00, #ff9900); }
+        .metric-bar-fill.poor { background: linear-gradient(90deg, #ff6b6b, #cc4444); }
+        
+        .metric-description {
+            font-size: 11px;
+            color: #888;
+            line-height: 1.4;
+        }
+        
+        /* Spider Chart */
+        .spider-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+        }
+        
+        .spider-chart {
+            width: 200px;
+            height: 200px;
+        }
+        
+        .overall-score {
+            text-align: center;
+        }
+        
+        .score-value {
+            font-size: 36px;
+            font-weight: 700;
+            background: linear-gradient(90deg, #00d4ff, #00ff88);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .score-label {
+            font-size: 12px;
+            color: #888;
+        }
+        
+        .grade-badge {
+            display: inline-block;
+            padding: 6px 16px;
+            background: linear-gradient(135deg, #00d4ff, #0099cc);
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 14px;
+            color: #fff;
+            margin-top: 8px;
+        }
+        
+        /* SWOT Grid */
+        .swot-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        
+        .swot-card {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        
+        .swot-card.strengths {
+            border-color: rgba(0, 255, 136, 0.3);
+            background: rgba(0, 255, 136, 0.05);
+        }
+        
+        .swot-card.weaknesses {
+            border-color: rgba(255, 204, 0, 0.3);
+            background: rgba(255, 204, 0, 0.05);
+        }
+        
+        .swot-card.opportunities {
+            border-color: rgba(0, 212, 255, 0.3);
+            background: rgba(0, 212, 255, 0.05);
+        }
+        
+        .swot-card.threats {
+            border-color: rgba(255, 107, 107, 0.3);
+            background: rgba(255, 107, 107, 0.05);
+        }
+        
+        .swot-title {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .swot-title.strengths { color: #00ff88; }
+        .swot-title.weaknesses { color: #ffcc00; }
+        .swot-title.opportunities { color: #00d4ff; }
+        .swot-title.threats { color: #ff6b6b; }
+        
+        .swot-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .swot-item {
+            font-size: 13px;
+            line-height: 1.5;
+            padding-left: 16px;
+            position: relative;
+        }
+        
+        .swot-item::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 7px;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+        }
+        
+        .strengths .swot-item::before { background: #00ff88; }
+        .weaknesses .swot-item::before { background: #ffcc00; }
+        .opportunities .swot-item::before { background: #00d4ff; }
+        .threats .swot-item::before { background: #ff6b6b; }
+        
+        .swot-item strong {
+            color: #fff;
+        }
+        
+        .swot-item .score {
+            font-size: 11px;
+            opacity: 0.7;
+        }
+        
+        /* Additional Metrics */
+        .additional-section {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        
+        .additional-title {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: #888;
+        }
+        
+        .additional-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 16px;
+        }
+        
+        .additional-item {
+            text-align: center;
+        }
+        
+        .additional-value {
+            font-size: 24px;
+            font-weight: 700;
+        }
+        
+        .additional-value.good { color: #00ff88; }
+        .additional-value.warning { color: #ffcc00; }
+        .additional-value.danger { color: #ff6b6b; }
+        
+        .additional-label {
+            font-size: 11px;
+            color: #888;
+            margin-top: 4px;
+        }
+        
+        .additional-hint {
+            font-size: 10px;
+            color: #666;
+            margin-top: 2px;
+        }
+        
+        /* Footer */
+        .footer {
+            margin-top: 24px;
+            padding-top: 16px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: #666;
+        }
+        
+        .footer a {
+            color: #00d4ff;
+            text-decoration: none;
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .technique-content {
+                grid-template-columns: 1fr;
+            }
+            
+            .spider-container {
+                order: -1;
+            }
+            
+            .swot-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .additional-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <!-- Header -->
+        <div class="header">
+            <div class="logo">
+                <div class="logo-icon">🧗</div>
+                <div class="logo-text">
+                    <h1>ClimbAI</h1>
+                    <span>BoulderVision Analysis</span>
+                </div>
+            </div>
+            <div class="meta">
+                <div>📅 <strong>21 января 2026</strong></div>
+                <div>⏱ Время: <strong>47.2 сек</strong></div>
+                <div>🎬 Кадров: <strong>1180</strong></div>
+            </div>
+        </div>
+        
+        <!-- Technique Section -->
+        <div class="technique-section">
+            <div class="section-title">📐 ТЕХНИКА ЛАЗАНИЯ</div>
+            <div class="section-subtitle">
+                Базовые метрики по методологии <a href="#">Eric J. Hörst «Training for Climbing»</a>
+            </div>
+            
+            <div class="technique-content">
+                <div class="metrics-list">
+                    <!-- Quiet Feet -->
+                    <div class="metric-item">
+                        <div class="metric-header">
+                            <span class="metric-name">Quiet Feet (Точность ног)</span>
+                            <span class="metric-score good">78%</span>
+                        </div>
+                        <div class="metric-bar">
+                            <div class="metric-bar-fill good" style="width: 78%"></div>
+                        </div>
+                        <div class="metric-description">
+                            Умение ставить ногу сразу в нужное место. У вас 2.1 перестановки на зацепку — это хороший результат.
+                        </div>
+                    </div>
+                    
+                    <!-- Hip Position -->
+                    <div class="metric-item">
+                        <div class="metric-header">
+                            <span class="metric-name">Hip Position (Положение таза)</span>
+                            <span class="metric-score medium">52%</span>
+                        </div>
+                        <div class="metric-bar">
+                            <div class="metric-bar-fill medium" style="width: 52%"></div>
+                        </div>
+                        <div class="metric-description">
+                            Близость таза к стене. Отклонение 23° — руки перегружаются. Норма: менее 15°.
+                        </div>
+                    </div>
+                    
+                    <!-- Diagonal -->
+                    <div class="metric-item">
+                        <div class="metric-header">
+                            <span class="metric-name">Противовес (Диагональ)</span>
+                            <span class="metric-score excellent">94%</span>
+                        </div>
+                        <div class="metric-bar">
+                            <div class="metric-bar-fill excellent" style="width: 94%"></div>
+                        </div>
+                        <div class="metric-description">
+                            Координация «правая рука — левая нога». Отличная диагональная работа, баланс стабильный.
+                        </div>
+                    </div>
+                    
+                    <!-- Route Reading -->
+                    <div class="metric-item">
+                        <div class="metric-header">
+                            <span class="metric-name">Считывание (Планирование)</span>
+                            <span class="metric-score good">68%</span>
+                        </div>
+                        <div class="metric-bar">
+                            <div class="metric-bar-fill good" style="width: 68%"></div>
+                        </div>
+                        <div class="metric-description">
+                            Паузы для просмотра маршрута. 3.2 сек до старта + 2 паузы — есть планирование.
+                        </div>
+                    </div>
+                    
+                    <!-- Rhythm -->
+                    <div class="metric-item">
+                        <div class="metric-header">
+                            <span class="metric-name">Ритм (Равномерность)</span>
+                            <span class="metric-score medium">58%</span>
+                        </div>
+                        <div class="metric-bar">
+                            <div class="metric-bar-fill medium" style="width: 58%"></div>
+                        </div>
+                        <div class="metric-description">
+                            Стабильность темпа движений. Разброс ±340мс — темп сбивается на сложных участках.
+                        </div>
+                    </div>
+                    
+                    <!-- Dynamic Control -->
+                    <div class="metric-item">
+                        <div class="metric-header">
+                            <span class="metric-name">Контроль динамики</span>
+                            <span class="metric-score good">76%</span>
+                        </div>
+                        <div class="metric-bar">
+                            <div class="metric-bar-fill good" style="width: 76%"></div>
+                        </div>
+                        <div class="metric-description">
+                            Качество после бросков. Стабилизация за 0.8 сек — хороший контроль.
+                        </div>
+                    </div>
+                    
+                    <!-- Grip Release -->
+                    <div class="metric-item">
+                        <div class="metric-header">
+                            <span class="metric-name">Grip Release (Перехваты)</span>
+                            <span class="metric-score poor">34%</span>
+                        </div>
+                        <div class="metric-bar">
+                            <div class="metric-bar-fill poor" style="width: 34%"></div>
+                        </div>
+                        <div class="metric-description">
+                            Плавность отпускания зацепов. Резкие рывки — теряется баланс и энергия.
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Spider Chart -->
+                <div class="spider-container">
+                    <svg class="spider-chart" viewBox="0 0 200 200">
+                        <!-- Background circles -->
+                        <circle cx="100" cy="100" r="80" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+                        <circle cx="100" cy="100" r="60" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+                        <circle cx="100" cy="100" r="40" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+                        <circle cx="100" cy="100" r="20" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+                        
+                        <!-- Axes -->
+                        <line x1="100" y1="100" x2="100" y2="20" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+                        <line x1="100" y1="100" x2="169" y2="56" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+                        <line x1="100" y1="100" x2="169" y2="144" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+                        <line x1="100" y1="100" x2="100" y2="180" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+                        <line x1="100" y1="100" x2="31" y2="144" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+                        <line x1="100" y1="100" x2="31" y2="56" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+                        <line x1="100" y1="100" x2="57" y2="27" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+                        
+                        <!-- Data polygon -->
+                        <polygon 
+                            points="100,37 147,67 155,128 100,148 46,115 38,78 73,38"
+                            fill="rgba(0,212,255,0.3)"
+                            stroke="#00d4ff"
+                            stroke-width="2"
+                        />
+                        
+                        <!-- Data points -->
+                        <circle cx="100" cy="37" r="4" fill="#00ff88"/><!-- QF 78% -->
+                        <circle cx="147" cy="67" r="4" fill="#ffcc00"/><!-- HP 52% -->
+                        <circle cx="155" cy="128" r="4" fill="#00ff88"/><!-- ПВ 94% -->
+                        <circle cx="100" cy="148" r="4" fill="#88ff00"/><!-- СЧ 68% -->
+                        <circle cx="46" cy="115" r="4" fill="#ffcc00"/><!-- РТ 58% -->
+                        <circle cx="38" cy="78" r="4" fill="#88ff00"/><!-- ДН 76% -->
+                        <circle cx="73" cy="38" r="4" fill="#ff6b6b"/><!-- GR 34% -->
+                        
+                        <!-- Labels -->
+                        <text x="100" y="12" text-anchor="middle" fill="#888" font-size="9">QF</text>
+                        <text x="178" y="56" text-anchor="start" fill="#888" font-size="9">HP</text>
+                        <text x="178" y="148" text-anchor="start" fill="#888" font-size="9">ПВ</text>
+                        <text x="100" y="195" text-anchor="middle" fill="#888" font-size="9">СЧ</text>
+                        <text x="18" y="148" text-anchor="end" fill="#888" font-size="9">РТ</text>
+                        <text x="18" y="56" text-anchor="end" fill="#888" font-size="9">ДН</text>
+                        <text x="50" y="18" text-anchor="middle" fill="#888" font-size="9">GR</text>
+                    </svg>
+                    
+                    <div class="overall-score">
+                        <div class="score-value">66</div>
+                        <div class="score-label">общий балл техники</div>
+                        <div class="grade-badge">Уровень: 6a—6b</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- SWOT Grid -->
+        <div class="swot-grid">
+            <!-- Strengths -->
+            <div class="swot-card strengths">
+                <div class="swot-title strengths">💪 СИЛЬНЫЕ СТОРОНЫ</div>
+                <ul class="swot-list">
+                    <li class="swot-item">
+                        <strong>Противовес 94%</strong> — отличная диагональная координация, движения сбалансированы. Это уровень 7a+.
+                    </li>
+                    <li class="swot-item">
+                        <strong>Точные ноги 78%</strong> — ставите ногу сразу в нужное место, экономите энергию.
+                    </li>
+                    <li class="swot-item">
+                        <strong>Стабильность 87%</strong> — тело не «гуляет», хороший контроль центра масс.
+                    </li>
+                    <li class="swot-item">
+                        <strong>Восстановление 74%</strong> — умеете находить позы для отдыха и вытряхивать руки.
+                    </li>
+                </ul>
+            </div>
+            
+            <!-- Weaknesses -->
+            <div class="swot-card weaknesses">
+                <div class="swot-title weaknesses">⚠️ СЛАБЫЕ СТОРОНЫ</div>
+                <ul class="swot-list">
+                    <li class="swot-item">
+                        <strong>Перехваты 34%</strong> — резко отпускаете зацепы, дёргаете руками. Теряете баланс и энергию.
+                    </li>
+                    <li class="swot-item">
+                        <strong>Положение таза 52%</strong> — таз далеко от стены (23°). Из-за этого руки перегружены.
+                    </li>
+                    <li class="swot-item">
+                        <strong>Ритм 58%</strong> — темп сбивается на сложных участках. Разброс ±340мс.
+                    </li>
+                    <li class="swot-item">
+                        <strong>Руки 65%</strong> — несут слишком много веса. Должно быть 30-40%, у вас больше.
+                    </li>
+                </ul>
+            </div>
+            
+            <!-- Opportunities -->
+            <div class="swot-card opportunities">
+                <div class="swot-title opportunities">🚀 ВОЗМОЖНОСТИ РОСТА</div>
+                <ul class="swot-list">
+                    <li class="swot-item">
+                        <strong>Плавные перехваты</strong> — если убрать рывки, это даст +1 категорию. Сейчас это ваш потолок.
+                    </li>
+                    <li class="swot-item">
+                        <strong>Таз ближе к стене</strong> — при улучшении до 70% руки будут уставать на 30% меньше.
+                    </li>
+                    <li class="swot-item">
+                        <strong>Ноги несут 62%</strong> — резерв есть. Если довести до 70% — откроются нависания.
+                    </li>
+                </ul>
+            </div>
+            
+            <!-- Threats -->
+            <div class="swot-card threats">
+                <div class="swot-title threats">🔴 РИСКИ И УГРОЗЫ</div>
+                <ul class="swot-list">
+                    <li class="swot-item">
+                        <strong>Левое плечо</strong> — зажим в 4 точках маршрута. Риск импинджмента при сохранении паттерна.
+                    </li>
+                    <li class="swot-item">
+                        <strong>Истощение 71%</strong> — к финишу падение контроля на 40%. Последние 20% маршрута в красной зоне.
+                    </li>
+                    <li class="swot-item">
+                        <strong>Правое колено</strong> — ротация под нагрузкой 3 раза за пролаз. Риск повреждения мениска.
+                    </li>
+                </ul>
+            </div>
+        </div>
+        
+        <!-- Additional Metrics -->
+        <div class="additional-section">
+            <div class="additional-title">📈 ДОПОЛНИТЕЛЬНЫЕ ПОКАЗАТЕЛИ</div>
+            <div class="additional-grid">
+                <div class="additional-item">
+                    <div class="additional-value good">87%</div>
+                    <div class="additional-label">Стабильность</div>
+                    <div class="additional-hint">контроль тела</div>
+                </div>
+                <div class="additional-item">
+                    <div class="additional-value warning">71%</div>
+                    <div class="additional-label">Истощение</div>
+                    <div class="additional-hint">усталость к финишу</div>
+                </div>
+                <div class="additional-item">
+                    <div class="additional-value warning">65%</div>
+                    <div class="additional-label">Руки</div>
+                    <div class="additional-hint">% нагрузки</div>
+                </div>
+                <div class="additional-item">
+                    <div class="additional-value good">62%</div>
+                    <div class="additional-label">Ноги</div>
+                    <div class="additional-hint">% нагрузки</div>
+                </div>
+                <div class="additional-item">
+                    <div class="additional-value good">74%</div>
+                    <div class="additional-label">Восстановление</div>
+                    <div class="additional-hint">качество отдыха</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Footer -->
+        <div class="footer">
+            <div>
+                Методология: <a href="#">Eric J. Hörst «Training for Climbing»</a> · 
+                <a href="#">Self-Coached Climber</a>
+            </div>
+            <div>
+                Сгенерировано: 21.01.2026, 14:32
+            </div>
+        </div>
+    </div>
+</body>
+</html>
