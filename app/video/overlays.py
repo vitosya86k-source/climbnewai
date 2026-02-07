@@ -1452,18 +1452,19 @@ class VideoOverlays:
             f.write(_json.dumps({"sessionId":"debug-session","runId":"run2","hypothesisId":"H-B","location":"overlays.py:_draw_mini_spider_new:metrics","message":"Spider metrics values","data":{"metrics":metrics,"cx":cx,"cy":cy},"timestamp":int(__import__('time').time()*1000)})+'\n')
         # #endregion
         
-        # === КОНФИГУРАЦИЯ (увеличено и смещено вправо) ===
-        radius = 55  # Увеличено для лучшей видимости
+        # === КОНФИГУРАЦИЯ (увеличено для презентабельности) ===
+        radius = 80  # Увеличено с 55 для лучшей видимости
         
-        # Фон (тёмный круг)
+        # Фон (тёмный круг, полупрозрачный)
         overlay = frame.copy()
-        cv2.circle(overlay, (cx, cy), radius + 15, (30, 30, 30), -1)
-        cv2.addWeighted(frame, 0.15, overlay, 0.85, 0, frame)
+        cv2.circle(overlay, (cx, cy), radius + 20, (20, 20, 20), -1)
+        cv2.addWeighted(frame, 0.2, overlay, 0.8, 0, frame)
         
-        # === КРУГИ ШКАЛЫ (25%, 50%, 75%, 100%) ===
+        # === КРУГИ ШКАЛЫ (более заметные) ===
         for pct in [25, 50, 75, 100]:
             r = int(radius * pct / 100)
-            cv2.circle(frame, (cx, cy), r, (60, 60, 60), 1)
+            thickness = 2 if pct == 100 else 1
+            cv2.circle(frame, (cx, cy), r, (80, 80, 80), thickness)
         
         # === 7 ОСЕЙ (только ASCII для корректного отображения в OpenCV) ===
         categories = ['QF', 'HP', 'DM', 'RR', 'RT', 'DC', 'GR']
@@ -1491,16 +1492,16 @@ class VideoOverlays:
             end_y = int(cy + radius * math.sin(angle))
             cv2.line(frame, (cx, cy), (end_x, end_y), (80, 80, 80), 1)
             
-            # Подпись оси (СНАРУЖИ паутинки) - увеличено расстояние для "Диагональная координация"
-            label_distance = 35  # Увеличено с 30 для предотвращения обрезания текста
+            # Подпись оси (СНАРУЖИ паутинки) - увеличено расстояние
+            label_distance = 40  # Увеличено для радиуса 80
             label_x = int(cx + label_distance * math.cos(angle))
             label_y = int(cy + label_distance * math.sin(angle))
             # Фон для букв для читаемости
-            (text_w, text_h), baseline = cv2.getTextSize(cat, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
-            cv2.rectangle(frame, (label_x - text_w//2 - 3, label_y - text_h - 3), 
-                         (label_x + text_w//2 + 3, label_y + 3), (0, 0, 0), -1)
+            (text_w, text_h), baseline = cv2.getTextSize(cat, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+            cv2.rectangle(frame, (label_x - text_w//2 - 4, label_y - text_h - 4), 
+                         (label_x + text_w//2 + 4, label_y + 4), (0, 0, 0), -1)
             cv2.putText(frame, cat, (label_x - text_w//2, label_y),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2, cv2.LINE_AA)
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
             
             # Точка значения
             val = metrics.get(key, 50.0)
@@ -1509,17 +1510,18 @@ class VideoOverlays:
             point_y = int(cy + point_r * math.sin(angle))
             points.append((point_x, point_y))
         
-        # === ЗАПОЛНЕННЫЙ ПОЛИГОН ===
+        # === ЗАПОЛНЕННЫЙ ПОЛИГОН (яркий цвет) ===
         if len(points) >= 3:
             pts = np.array(points, np.int32).reshape((-1, 1, 2))
             overlay = frame.copy()
-            cv2.fillPoly(overlay, [pts], (255, 200, 0))  # Жёлто-оранжевый
-            cv2.addWeighted(frame, 0.7, overlay, 0.3, 0, frame)
-            cv2.polylines(frame, [pts], True, (255, 255, 255), 2)
+            cv2.fillPoly(overlay, [pts], (0, 200, 255))  # Яркий голубой
+            cv2.addWeighted(frame, 0.5, overlay, 0.5, 0, frame)
+            cv2.polylines(frame, [pts], True, (255, 255, 255), 3)  # Толще обводка
         
-        # === ТОЧКИ НА ВЕРШИНАХ ===
-        for point in points:
-            cv2.circle(frame, point, 5, (255, 255, 255), -1)
+        # === ТОЧКИ НА ВЕРШИНАХ (крупнее) ===
+        for i, point in enumerate(points):
+            cv2.circle(frame, point, 6, colors[i], -1)  # Цветной внутри
+            cv2.circle(frame, point, 7, (255, 255, 255), 2)  # Белая обводка
         
                 # УБРАНО: Score (по запросу пользователя)
 
