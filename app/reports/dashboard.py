@@ -186,13 +186,13 @@ class DashboardGenerator:
         
         # Названия метрик: (ключ, аббревиатура, русское название)
         metrics_info = [
-            ("quiet_feet", "QF", "Тихие ноги"),
+            ("quiet_feet", "QF", "Спокойные ноги"),
             ("hip_position", "HP", "Положение таза"),
-            ("diagonal", "DM", "Противовес"),
-            ("route_reading", "RR", "Считывание"),
+            ("diagonal", "DM", "Диагональная координация"),
+            ("route_reading", "RR", "Считывание маршрута"),
             ("rhythm", "RT", "Ритм"),
             ("dynamic_control", "DC", "Контроль динамики"),
-            ("grip_release", "GR", "Мягкость перехватов"),
+            ("grip_release", "GR", "Плавность перехватов"),
         ]
         
         y_start = 95
@@ -321,13 +321,7 @@ class DashboardGenerator:
                           color=DASHBOARD_COLORS['text_secondary'])
         ax.grid(True, alpha=0.3, color=DASHBOARD_COLORS['text_secondary'])
         
-        # Значения на точках (увеличен размер шрифта)
-        for angle, value in zip(angles[:-1], values[:-1]):
-            x = value * math.cos(angle)
-            y = value * math.sin(angle)
-            ax.text(x * 1.15, y * 1.15, f'{int(value)}', 
-                   ha='center', va='center', fontsize=12, 
-                   color=DASHBOARD_COLORS['text_primary'], fontweight='bold')
+        # Цифры внутри паутины убраны — мешают восприятию
     
     def _generate_pdf_dashboard(
         self,
