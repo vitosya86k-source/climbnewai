@@ -14,6 +14,8 @@ from app.config import TELEGRAM_BOT_TOKEN
 from app.database import init_db
 from app.bot import setup_handlers
 from app.utils import setup_logger
+from app.application.queue_manager import start_queue_workers
+from app.config import USE_DATABASE
 
 # Настройка логирования
 logger = setup_logger("climbai", logging.INFO)
@@ -27,12 +29,18 @@ async def post_init(application: Application) -> None:
     logger.info("🚀 Инициализация бота...")
     
     # Инициализация базы данных
-    try:
-        init_db()
-        logger.info("✅ База данных инициализирована")
-    except Exception as e:
-        logger.error(f"❌ Ошибка инициализации БД: {e}")
-        raise
+    if USE_DATABASE:
+        try:
+            init_db()
+            logger.info("✅ База данных инициализирована")
+        except Exception as e:
+            logger.error(f"❌ Ошибка инициализации БД: {e}")
+            raise
+    else:
+        logger.info("ℹ️ База данных отключена (MVP)")
+
+    # Запуск воркеров очереди
+    start_queue_workers(application)
     
     logger.info("✅ Бот готов к работе!")
 
@@ -122,4 +130,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

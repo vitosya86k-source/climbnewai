@@ -8,7 +8,6 @@ from .injury_predictor import InjuryPredictor, InjuryPrediction, RiskLevel, Trau
 from .nine_box_model import ClimberNineBoxModel
 from .route_assessor import RouteAssessor, RouteAssessment, RouteAssessmentType, BottleneckFactor
 from .algorithmic import AlgorithmicAnalyzer, generate_algorithmic_report
-from .ai_recommendations import AIRecommendationEngine, get_ai_recommendations
 
 __all__ = [
     "FrameAnalyzer",
@@ -25,9 +24,7 @@ __all__ = [
     "RouteAssessmentType",
     "BottleneckFactor",
     "AlgorithmicAnalyzer",
-    "generate_algorithmic_report",
-    "AIRecommendationEngine",
-    "get_ai_recommendations"
+    "generate_algorithmic_report"
 ]
 
 

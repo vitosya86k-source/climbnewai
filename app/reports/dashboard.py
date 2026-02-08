@@ -86,11 +86,6 @@ class DashboardGenerator:
         Returns:
             Path к сохраненному файлу
         """
-        # #region agent log
-        with open('/home/user/с винды/ClimbAI/telegram_bot_bouldervision/.cursor/debug.log', 'a') as f:
-            import json as _json
-            f.write(_json.dumps({"sessionId":"debug-session","runId":"run2","hypothesisId":"H-C","location":"dashboard.py:generate_dashboard:entry","message":"Dashboard generation started","data":{"output_path":str(output_path),"format":format,"has_technique_metrics":bool(analysis_data.get('technique_metrics')),"has_swot":bool(analysis_data.get('swot_analysis'))},"timestamp":int(__import__('time').time()*1000)})+'\n')
-        # #endregion
         try:
             if format.lower() == "pdf":
                 return self._generate_pdf_dashboard(analysis_data, output_path)
@@ -113,23 +108,20 @@ class DashboardGenerator:
         
         # === TECHNIQUE SECTION (паутинка + список метрик) ===
         technique_metrics = analysis_data.get('technique_metrics', {})
-        # Вычисляем общий балл (только из 7 базовых метрик техники)
-        if technique_metrics:
-            # Только базовые метрики техники (7 штук)
-            base_metrics = ['quiet_feet', 'hip_position', 'diagonal', 'route_reading', 
-                           'rhythm', 'dynamic_control', 'grip_release']
-            valid_values = []
-            for key in base_metrics:
-                val = technique_metrics.get(key)
-                if val is not None and isinstance(val, (int, float)) and not math.isnan(val):
-                    valid_values.append(float(val))
-            
-            if valid_values:
-                overall_score = sum(valid_values) / len(valid_values)
+        # Вычисляем общий балл (сначала берём готовый из анализа, если есть)
+        overall_score = analysis_data.get('overall_technique_score')
+        if overall_score is None:
+            if technique_metrics:
+                base_metrics = ['quiet_feet', 'hip_position', 'diagonal', 'route_reading', 
+                               'rhythm', 'dynamic_control', 'grip_release']
+                valid_values = []
+                for key in base_metrics:
+                    val = technique_metrics.get(key)
+                    if val is not None and isinstance(val, (int, float)) and not math.isnan(val):
+                        valid_values.append(float(val))
+                overall_score = sum(valid_values) / len(valid_values) if valid_values else 0
             else:
                 overall_score = 0
-        else:
-            overall_score = 0
         
         # Уровень берем из анализа или вычисляем заново
         grade = analysis_data.get('estimated_grade', 'N/A')
@@ -158,12 +150,6 @@ class DashboardGenerator:
                    bbox_inches='tight', pad_inches=0.2)
         plt.close()
         
-        # #region agent log
-        import os as _os
-        with open('/home/user/с винды/ClimbAI/telegram_bot_bouldervision/.cursor/debug.log', 'a') as f:
-            import json as _json
-            f.write(_json.dumps({"sessionId":"debug-session","runId":"run2","hypothesisId":"H-C","location":"dashboard.py:_generate_png:success","message":"Dashboard saved","data":{"output_path":str(output_path),"file_exists":_os.path.exists(str(output_path)),"file_size":_os.path.getsize(str(output_path)) if _os.path.exists(str(output_path)) else 0},"timestamp":int(__import__('time').time()*1000)})+'\n')
-        # #endregion
         
         logger.info(f"Дашборд сохранен: {output_path}")
         return output_path
@@ -177,7 +163,7 @@ class DashboardGenerator:
                 color=DASHBOARD_COLORS['accent_blue'], ha='left', va='top', transform=fig.transFigure)
         # Подзаголовок "BoulderVision Analysis" убран — дата и время только в футере
     
-    def _draw_metrics_list(self, ax, technique_metrics: Dict[str, float]):
+    def _draw_metrics_list(self, ax, technique_metrics: Dict[str, float], overall_score: float, grade: str):
         """Отрисовка списка метрик с прогресс-барами"""
         ax.set_xlim(0, 100)
         ax.set_ylim(0, 100)
@@ -198,10 +184,9 @@ class DashboardGenerator:
         y_start = 95
         y_step = 12  # Компактнее (было 16)
         bar_height = 4
-        bar_width = 55
+        bar_width = 43
         x_label = 2
-        x_bar = 38
-        x_score = 98
+        x_bar = 52
         
         for i, (key, name, hint) in enumerate(metrics_info):
             y = y_start - i * y_step
@@ -222,15 +207,16 @@ class DashboardGenerator:
             else:
                 color = DASHBOARD_COLORS['poor']
             
-            # Название метрики (увеличен размер)
-            ax.text(x_label, y + 2, name, fontsize=12, fontweight='bold',
+            # Название метрики (адаптивный размер для длинных строк)
+            label_fontsize = 12 if len(name) <= 18 else 10
+            ax.text(x_label, y + 2, name, fontsize=label_fontsize, fontweight='bold',
                     color=DASHBOARD_COLORS['text_primary'], va='center')
             
             # Короткие описания (без длинных текстов)
             short_descriptions = {
                 "QF": "Точность постановки ног",
                 "HP": "Положение таза у стены",
-                "DM": "Диаг. координация",
+                "DM": "Диагональная координация",
                 "RR": "Планирование маршрута",
                 "RT": "Равномерность темпа",
                 "DC": "Контроль после бросков",
@@ -239,8 +225,16 @@ class DashboardGenerator:
             
             # Короткое описание (одна строка, увеличен размер)
             desc = short_descriptions.get(name, hint)
-            ax.text(x_label, y - 2, desc, fontsize=10, 
-                   color=DASHBOARD_COLORS['text_secondary'], va='center')
+            desc_fontsize = 11 if len(desc) <= 28 else 10
+            ax.text(
+                x_label,
+                y - 2,
+                desc,
+                fontsize=desc_fontsize,
+                color=DASHBOARD_COLORS['text_secondary'],
+                va='center',
+                wrap=True,
+            )
             
             # Фон прогресс-бара
             bar_bg = mpatches.Rectangle((x_bar, y - bar_height/2), bar_width, bar_height,
@@ -253,9 +247,18 @@ class DashboardGenerator:
                                           facecolor=color, edgecolor='none')
             ax.add_patch(bar_fill)
             
-            # Значение справа (увеличен размер)
-            ax.text(x_score, y, f"{int(score)}%", fontsize=12, fontweight='bold',
-                    color=color, va='center', ha='right')
+            # Значение справа от бара (не поверх заливки)
+            value_text = f"{int(score)}%"
+            value_x = min(98, x_bar + bar_width + 2)
+            ax.text(value_x, y, value_text, fontsize=12, fontweight='bold',
+                    color=color, va='center', ha='left')
+
+        # Общий балл и уровень — после GR, в этой же колонке
+        summary_y = y_start - (len(metrics_info) - 1) * y_step - 14
+        ax.text(x_label, summary_y, f"Общий балл: {int(overall_score)}/100",
+                fontsize=12, fontweight='bold', color=DASHBOARD_COLORS['text_primary'], va='center')
+        ax.text(x_label, summary_y - 8, f"Уровень: {grade}",
+                fontsize=11, color=DASHBOARD_COLORS['accent_blue'], va='center')
     
     def _create_technique_section(self, fig, technique_metrics: Dict[str, float], 
                                   overall_score: float, grade: str):
@@ -267,19 +270,18 @@ class DashboardGenerator:
         
         # Левая колонка: список метрик
         ax_list = fig.add_subplot(gs[0, 0])
-        self._draw_metrics_list(ax_list, technique_metrics)
+        self._draw_metrics_list(ax_list, technique_metrics, overall_score, grade)
         
         # Правая колонка: паутинка
         ax_spider = fig.add_subplot(gs[0, 1], projection='polar')
         self._draw_spider_chart_polar(ax_spider, technique_metrics)
         
-        # Общий балл и уровень под паутинкой (сдвинуто влево чтобы не наползало на паутинку)
-        fig.text(0.50, 0.58, f"Общий балл: {int(overall_score)}/100", 
-                 fontsize=12, fontweight='bold', color=DASHBOARD_COLORS['text_primary'], 
-                 ha='left', transform=fig.transFigure)
-        fig.text(0.50, 0.54, f"Уровень: {grade}", 
-                 fontsize=11, color=DASHBOARD_COLORS['accent_blue'], 
-                 ha='left', transform=fig.transFigure)
+        # Подгоняем высоту паутинки под высоту списка (выравнивание по верху)
+        list_pos = ax_list.get_position()
+        spider_pos = ax_spider.get_position()
+        ax_spider.set_position([spider_pos.x0, list_pos.y0, spider_pos.width, list_pos.height])
+
+        # Общий балл и уровень переносятся в список метрик после GR
     
     def _draw_spider_chart_polar(self, ax, technique_metrics: Dict[str, float]):
         """Рисует паутинку метрик в полярных координатах"""
@@ -611,7 +613,7 @@ class DashboardGenerator:
         }
         
         ax.text(50, 90, titles.get(card_type, card_type.upper()), 
-               fontsize=11, fontweight='bold', color=text_color,
+               fontsize=12, fontweight='bold', color=text_color,
                ha='center', va='top')
         
         # Элементы списка (уменьшено для помещения больше текста)
@@ -622,52 +624,41 @@ class DashboardGenerator:
             base_y = y_start - i * y_step
             text = item.get('text', '')
             
-            # Разбиваем текст на строки БЕЗ обрезания (максимум 4 строки по 52 символа)
+            # Разбиваем текст на строки (максимум 3 строки по 44 символа)
             words = text.split()
             lines = []
             current_line = ''
             
             for word in words:
                 test_line = current_line + (' ' + word if current_line else word)
-                if len(test_line) <= 52:
+                if len(test_line) <= 44:
                     current_line = test_line
                 else:
                     if current_line:
                         lines.append(current_line)
                     current_line = word
-                    if len(lines) >= 4:  # Максимум 4 строки
-                        # Если не поместилось, добавляем оставшиеся слова в последнюю строку
+                    if len(lines) >= 3:  # Максимум 3 строки
+                        # Если не поместилось, добавляем оставшиеся слова в последнюю строку с троеточием
                         remaining_words = words[words.index(word):]
                         remaining = ' '.join(remaining_words)
-                        if len(remaining) <= 52:
-                            lines.append(remaining)
-                        else:
-                            # Разбиваем последнюю строку еще раз
-                            last_line = ''
-                            for w in remaining_words:
-                                if len(last_line + ' ' + w) <= 52:
-                                    last_line = last_line + (' ' + w if last_line else w)
-                                else:
-                                    if last_line:
-                                        lines.append(last_line)
-                                    last_line = w
-                            if last_line:
-                                lines.append(last_line)
+                        if len(remaining) > 44:
+                            remaining = remaining[:41].rstrip() + "..."
+                        lines.append(remaining)
                         break
             
-            if current_line and len(lines) < 4:
+            if current_line and len(lines) < 3:
                 lines.append(current_line)
             
-            # Рисуем строки (до 4 строк)
-            for line_idx, line_text in enumerate(lines[:4]):
-                y = base_y - line_idx * 6  # Смещение для следующих строк
+            # Рисуем строки (до 3 строк)
+            for line_idx, line_text in enumerate(lines[:3]):
+                y = base_y - line_idx * 7
                 
                 if line_idx == 0:
                     # Точка-маркер только для первой строки
                     circle = mpatches.Circle((8, y), 2.5, facecolor=text_color)
                     ax.add_patch(circle)
                 
-                ax.text(14, y, line_text, fontsize=9, 
+                ax.text(14, y, line_text, fontsize=10, 
                        color=DASHBOARD_COLORS['text_primary'],
                        va='center', ha='left')
             
@@ -745,13 +736,21 @@ class DashboardGenerator:
                 value = 0.0
             value = max(0.0, min(100.0, float(value)))
             
-            # Цвет по значению
-            if value >= 70:
-                color = DASHBOARD_COLORS['excellent']
-            elif value >= 50:
-                color = DASHBOARD_COLORS['medium']
+            # Цвет по значению (истощение — инвертированная логика)
+            if key == 'exhaustion':
+                if value <= 30:
+                    color = DASHBOARD_COLORS['excellent']
+                elif value <= 50:
+                    color = DASHBOARD_COLORS['medium']
+                else:
+                    color = DASHBOARD_COLORS['poor']
             else:
-                color = DASHBOARD_COLORS['poor']
+                if value >= 70:
+                    color = DASHBOARD_COLORS['excellent']
+                elif value >= 50:
+                    color = DASHBOARD_COLORS['medium']
+                else:
+                    color = DASHBOARD_COLORS['poor']
             
             # Значение (большое) - смещено выше
             ax.text(50, 80, f'{int(value)}%', fontsize=24, fontweight='bold',

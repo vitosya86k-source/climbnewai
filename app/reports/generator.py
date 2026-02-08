@@ -1,33 +1,23 @@
-"""Генератор отчетов через Claude API с кэшированием"""
+"""Генератор отчетов (алгоритмический, без ИИ)"""
 
 import logging
 from typing import Dict, Any
-import anthropic
 
-from app.config import ANTHROPIC_API_KEY
-from .prompts import get_full_report_prompt
 from app.experts import select_expert
 from app.psychology import determine_neuro_type
 from app.boldering import find_similar_athletes, format_comparison
 
-# ✨ Импортируем систему кэширования
-from app.claude_caching import claude_manager
-
 # 📊 Алгоритмический анализатор (без AI)
-from app.analysis.algorithmic import AlgorithmicAnalyzer, generate_algorithmic_report
-
-# 🤖 AI рекомендации (с упражнениями, книгами, экспертами)
-from app.analysis.ai_recommendations import AIRecommendationEngine, get_ai_recommendations
+from app.analysis.algorithmic import generate_algorithmic_report
 
 logger = logging.getLogger(__name__)
 
 
 class ReportGenerator:
-    """Генерирует отчеты через Claude API с кэшированием (или локальный fallback без ключа)"""
+    """Генерирует отчеты алгоритмически (без ИИ)"""
     
     def __init__(self):
-        self.client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
-        self.use_caching = True and bool(ANTHROPIC_API_KEY)  # Кэширование только при наличии ключа
+        pass
     
     async def generate_report(
         self,
@@ -62,52 +52,11 @@ class ReportGenerator:
             similar_athletes = find_similar_athletes(analysis_data, top_n=3)
             logger.info(f"Найдено {len(similar_athletes)} похожих спортсменов")
             
-            # 4. Формируем промпт
-            prompt = get_full_report_prompt(
-                analysis_data=analysis_data,
-                report_format=report_format,
-                climber_name=climber_name,
-                expert_profile=expert_profile,
-                neuro_profile=neuro_profile,
-                similar_athletes=similar_athletes
+            # 4. Генерируем отчет локально (без ИИ)
+            report_text = self._generate_local_report(
+                analysis_data, report_format, climber_name,
+                expert_profile, neuro_profile, similar_athletes
             )
-            
-            # 5. Вызываем Claude API с кэшированием (или сразу fallback, если ключа нет)
-            if not self.client:
-                logger.info("Claude API ключ не задан — генерирую локальный отчёт.")
-                report_text = self._generate_local_report(
-                    analysis_data, report_format, climber_name,
-                    expert_profile, neuro_profile, similar_athletes
-                )
-            else:
-                logger.info("Отправка запроса к Claude API с кэшированием...")
-                try:
-                    if self.use_caching:
-                        logger.info("💰 Используем систему кэширования...")
-                        report_text = await claude_manager.generate_report(
-                            analysis_data=analysis_data,
-                            report_format=report_format,
-                            climber_name=climber_name,
-                            expert=expert_profile['name'],
-                            neuro_type=neuro_profile['name']
-                        )
-                        stats = claude_manager.get_cache_stats()
-                        logger.info(f"📊 Cache Stats: {stats}")
-                    else:
-                        response = self.client.messages.create(
-                            model="claude-sonnet-4-20250514",
-                            max_tokens=8000,
-                            temperature=0.7,
-                            messages=[{"role": "user", "content": prompt}]
-                        )
-                        report_text = response.content[0].text
-                except Exception as api_error:
-                    logger.error(f"Ошибка Claude API: {api_error}")
-                    logger.warning("Переключаюсь на локальную генерацию...")
-                    report_text = self._generate_local_report(
-                        analysis_data, report_format, climber_name,
-                        expert_profile, neuro_profile, similar_athletes
-                    )
             
             logger.info(f"Отчет успешно сгенерирован ({len(report_text)} символов)")
             
@@ -126,7 +75,7 @@ class ReportGenerator:
                 fall_report = fall_detector.format_fall_report()
                 report_text += "\n\n" + fall_report
             
-            # 7. Добавляем сравнение с атлетами (если Claude не включил)
+            # 7. Добавляем сравнение с атлетами
             if similar_athletes and "СРАВНЕНИЕ С БАЗОЙ" not in report_text:
                 comparison_text = format_comparison(similar_athletes, analysis_data['avg_pose_quality'])
                 report_text += "\n\n" + comparison_text
@@ -250,22 +199,8 @@ class ReportGenerator:
 {algorithmic_report}
 
 ━━━━━━━━━━━━━━━━━━━━━━
-
-{self._get_ai_recommendations_section(analysis_data, climber_name)}
 """
         return report.strip()
-
-    def _get_ai_recommendations_section(
-        self,
-        analysis_data: Dict[str, Any],
-        climber_name: str
-    ) -> str:
-        """Генерирует секцию AI рекомендаций с упражнениями, книгами, экспертами"""
-        try:
-            return get_ai_recommendations(analysis_data, climber_name)
-        except Exception as e:
-            logger.warning(f"Не удалось получить AI рекомендации: {e}")
-            return "📚 AI рекомендации временно недоступны"
     
     def _get_expert_comment(self, quality: float, expert: str) -> str:
         if quality >= 80:
@@ -504,13 +439,6 @@ class ReportGenerator:
         if position:
             result.append(f"\nПозиция: {position.get('skill', '')}/{position.get('physical', '')}/{position.get('mental', '')}")
 
-        # Фокус тренировок (заглушка для совместимости)
-        training_focus = nine_box_data.get('training_focus', [])
-        if training_focus:
-            result.append("\nФокус тренировок:")
-            for focus in training_focus[:2]:
-                result.append(f"🎯 {focus}")
-
         return '\n'.join(result)
 
     def _remove_markdown(self, text: str) -> str:
@@ -535,5 +463,3 @@ class ReportGenerator:
         text = re.sub(r'\n{3,}', '\n\n', text)
         
         return text.strip()
-
-

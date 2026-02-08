@@ -43,7 +43,7 @@ class TechniqueMetricsAnalyzer:
         }
         
         self.movement_intervals: List[float] = []  # Интервалы между движениями (мс)
-        self.last_movement_frame: Optional[int] = None
+        self.last_movement_time: Optional[float] = None
         
         self.dynamic_moves: List[Dict[str, Any]] = []  # Динамические движения
         self.hand_trajectories: List[List[Tuple[float, float, float]]] = []  # Траектории рук
@@ -61,7 +61,7 @@ class TechniqueMetricsAnalyzer:
         self.foot_positions_history = {'left': [], 'right': []}
         self.hand_positions_history = {'left': [], 'right': []}
         self.movement_intervals = []
-        self.last_movement_frame = None
+        self.last_movement_time = None
         self.dynamic_moves = []
         self.hand_trajectories = []
         self.route_reading_data = {
@@ -152,13 +152,13 @@ class TechniqueMetricsAnalyzer:
             dist = math.sqrt((curr[0] - prev[0])**2 + (curr[1] - prev[1])**2)
             
             if dist > movement_threshold:
-                if self.last_movement_frame is not None:
-                    interval_ms = (timestamp - prev[2]) * 1000
+                if self.last_movement_time is not None:
+                    interval_ms = (timestamp - self.last_movement_time) * 1000
                     if interval_ms > 0:
                         self.movement_intervals.append(interval_ms)
                         if len(self.movement_intervals) > 30:
                             self.movement_intervals.pop(0)
-                self.last_movement_frame = frame_number
+                self.last_movement_time = timestamp
     
     def _calculate_quiet_feet(self) -> float:
         """
@@ -235,7 +235,8 @@ class TechniqueMetricsAnalyzer:
         else:
             score = max(0, 50 - (avg_repositions - 4.0) * 12.5)  # 0-49%
         
-        return max(0.0, min(100.0, score))
+        # Ритм не должен падать до 0 при шуме
+        return max(20.0, min(100.0, score))
     
     def _calculate_hip_position(self, landmarks) -> float:
         """

@@ -1,6 +1,6 @@
-# ClimbAI Telegram Bot + BoulderVision
+# ClimbAI Telegram Bot + BoulderVision (no AI)
 
-AI-powered climbing analysis bot с интеграцией алгоритмов BoulderVision.
+Telegram-бот для анализа техники скалолазания с интеграцией алгоритмов BoulderVision.
 
 ## Новые возможности
 
@@ -34,7 +34,7 @@ AI-powered climbing analysis bot с интеграцией алгоритмов 
 
 ```bash
 # Клонировать и перейти в папку
-cd telegram_bot_bouldervision
+cd telegram_bot_bouldervision_no_ai
 
 # Создать виртуальное окружение
 python -m venv venv
@@ -57,7 +57,6 @@ python run_bot.py
 ### Обязательные переменные
 ```
 TELEGRAM_BOT_TOKEN=...     # От @BotFather
-ANTHROPIC_API_KEY=...      # От Anthropic
 ```
 
 ### Для детекции зацепов (опционально)
@@ -66,17 +65,26 @@ ROBOFLOW_API_KEY=...       # От roboflow.com
 ENABLE_HOLD_DETECTION=true
 ```
 
+### Параллельные задачи (очередь)
+```
+MAX_CONCURRENT_JOBS=2      # Сколько видео обрабатываем параллельно
+```
+
+### Режим MVP (без базы данных)
+```
+USE_DATABASE=false
+```
+
 ## Архитектура
 
 ```
-telegram_bot_bouldervision/
+telegram_bot_bouldervision_no_ai/
 ├── app/
 │   ├── bouldervision/          # 🆕 BoulderVision модули
 │   │   ├── metrics.py          # Velocity Ratio, Cumulative Distance
 │   │   └── holds_detector.py   # Roboflow интеграция
 │   ├── analysis/               # Анализ кадров
 │   ├── bot/                    # Telegram handlers
-│   ├── database/               # SQLAlchemy модели
 │   ├── reports/                # Генерация отчетов
 │   └── video/
 │       ├── processor.py        # Обработка видео
@@ -107,7 +115,7 @@ telegram_bot_bouldervision/
 ## Деплой на Railway
 
 1. Создайте проект на [Railway](https://railway.app), подключите репозиторий GitHub.
-2. В настройках сервиса задайте переменные окружения из `env.example` (TELEGRAM_BOT_TOKEN, ANTHROPIC_API_KEY и др.).
+2. В настройках сервиса задайте переменные окружения из `env.example` (минимум `TELEGRAM_BOT_TOKEN`).
 3. Railway подхватит `Procfile` и `runtime.txt`; при необходимости укажите корень проекта в настройках.
 4. Деплой запускается при пуше в выбранную ветку.
 

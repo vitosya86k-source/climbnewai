@@ -22,9 +22,6 @@ BOLDERING_DIR.mkdir(parents=True, exist_ok=True)
 # Telegram
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
-# Claude API
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-
 # Roboflow API (для BoulderVision детекции зацепов)
 ROBOFLOW_API_KEY = os.getenv("ROBOFLOW_API_KEY")
 ROBOFLOW_PROJECT = os.getenv("ROBOFLOW_PROJECT", "climbing-route-1-hold-detection")
@@ -56,6 +53,12 @@ MEDIA_UPLOAD_TIMEOUT = float(os.getenv("MEDIA_UPLOAD_TIMEOUT", "1200"))
 MEDIAPIPE_MODEL_COMPLEXITY = int(os.getenv("MEDIAPIPE_MODEL_COMPLEXITY", "2"))
 FRAME_SKIP = int(os.getenv("FRAME_SKIP", "1"))
 
+# Concurrency
+MAX_CONCURRENT_JOBS = int(os.getenv("MAX_CONCURRENT_JOBS", "2"))
+
+# MVP: без базы данных
+USE_DATABASE = os.getenv("USE_DATABASE", "false").lower() == "true"
+
 # Railway
 PORT = int(os.getenv("PORT", "8080"))
 
@@ -63,6 +66,4 @@ PORT = int(os.getenv("PORT", "8080"))
 if not TELEGRAM_BOT_TOKEN:
     raise ValueError("TELEGRAM_BOT_TOKEN не установлен!")
 
-# ANTHROPIC_API_KEY опционален: без него отчёты идут через fallback (без ИИ)
-
-
+# Версия без ИИ: отчёты генерируются только алгоритмически

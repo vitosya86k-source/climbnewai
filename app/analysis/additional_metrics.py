@@ -39,6 +39,9 @@ class AdditionalMetricsAnalyzer:
         
         # Позиции отдыха
         self.rest_positions: List[Dict[str, Any]] = []
+
+        # История напряжения/интенсивности для усреднения
+        self.motion_intensity_history: List[float] = []
         
         self.frame_number = 0
         
@@ -48,6 +51,7 @@ class AdditionalMetricsAnalyzer:
         self.metrics_timeline = []
         self.weight_distribution_history = []
         self.rest_positions = []
+        self.motion_intensity_history = []
         self.frame_number = 0
     
     def analyze_frame(
@@ -96,6 +100,14 @@ class AdditionalMetricsAnalyzer:
         
         # Анализируем позиции отдыха
         self._analyze_rest_positions(landmarks, frame_data)
+
+        # Сохраняем интенсивность для сглаживания
+        if frame_data:
+            intensity = frame_data.get('motion_intensity')
+            if isinstance(intensity, (int, float)):
+                self.motion_intensity_history.append(float(intensity))
+                if len(self.motion_intensity_history) > self.history_size:
+                    self.motion_intensity_history.pop(0)
         
         # Вычисляем метрики
         metrics = {
@@ -543,9 +555,9 @@ class AdditionalMetricsAnalyzer:
         
         # Средний уровень напряжения (из frame_data или дефолт)
         avg_tension = 50.0
-        if frame_data:
-            avg_tension = frame_data.get('motion_intensity', 50)
-        
+        if self.motion_intensity_history:
+            avg_tension = float(np.mean(self.motion_intensity_history))
+
         # Продуктивность = (полезное / общее) × (100 - напряжение) / 50
         base_productivity = (useful_movement / total_movement) * 100
         tension_factor = (100 - avg_tension) / 50  # от 0 до 2

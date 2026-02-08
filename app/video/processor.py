@@ -29,11 +29,9 @@ from app.config import (
 from app.analysis import (
     FrameAnalyzer,
     FallDetector,
-    generate_csv_report,
     BodyTensionAnalyzer,
     InjuryPredictor,
-    ClimberNineBoxModel,
-    RouteAssessor
+    ClimberNineBoxModel
 )
 from app.analysis.csv_generator import analyze_technical_issues
 from app.bouldervision import BoulderVisionMetrics, HoldsDetector
@@ -69,7 +67,7 @@ class VideoProcessor:
         self.mp_pose = mp.solutions.pose
         logger.info("✅ VideoProcessor инициализирован (stateless)")
     
-    async def process_video(
+    def process_video(
         self,
         video_path: Path,
         output_overlay: str = "skeleton",
@@ -102,7 +100,6 @@ class VideoProcessor:
         tension_analyzer = BodyTensionAnalyzer()
         injury_predictor = InjuryPredictor()
         nine_box_model = ClimberNineBoxModel()
-        route_assessor = RouteAssessor()
         
         # Импортируем анализаторы
         from app.analysis.technique_metrics import TechniqueMetricsAnalyzer
@@ -141,7 +138,11 @@ class VideoProcessor:
             if not cap.isOpened():
                 raise ValueError(f"Не удалось открыть видео: {video_path}")
             
-            fps = int(cap.get(cv2.CAP_PROP_FPS))
+            fps_raw = cap.get(cv2.CAP_PROP_FPS)
+            fps = int(fps_raw) if fps_raw else 0
+            if fps <= 0:
+                logger.warning("FPS не определён, используем 30")
+                fps = 30
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -290,8 +291,8 @@ class VideoProcessor:
                 
                 # Прогресс
                 if progress_callback and frame_number % 30 == 0:
-                    progress = int((frame_number / total_frames) * 100)
-                    await progress_callback(progress, f"Обработка кадра {frame_number}/{total_frames}")
+                    progress = int((frame_number / total_frames) * 100) if total_frames > 0 else 0
+                    progress_callback(progress, f"Обработка кадра {frame_number}/{total_frames}")
                 
                 frame_number += 1
             
@@ -314,10 +315,6 @@ class VideoProcessor:
             if holds_detector:
                 holds_analysis = holds_detector.get_hold_analysis(fps)
             
-            # Генерация CSV
-            csv_path = TEMP_DIR / f"analysis_{video_path.stem}.csv"
-            generate_csv_report(frame_analyzer.frame_data, csv_path)
-
             # ========== НОВЫЕ АЛГОРИТМИЧЕСКИЕ АНАЛИЗЫ ==========
 
             # 1. Анализ напряжения (tension)
@@ -361,9 +358,13 @@ class VideoProcessor:
                 for metric_name in ['quiet_feet', 'hip_position', 'diagonal', 'route_reading', 'rhythm', 'dynamic_control', 'grip_release']:
                     values = [m.get(metric_name, 50.0) for m in overlays.technique_metrics_history if metric_name in m]
                     if values:
-                        avg_technique_metrics[metric_name] = sum(values) / len(values)
+                        avg_val = sum(values) / len(values)
                     else:
-                        avg_technique_metrics[metric_name] = 50.0
+                        avg_val = 50.0
+                    # Клэмпы
+                    if metric_name == 'rhythm':
+                        avg_val = max(20.0, avg_val)
+                    avg_technique_metrics[metric_name] = max(0.0, min(100.0, avg_val))
             else:
                 # Дефолтные значения если нет истории
                 avg_technique_metrics = {
@@ -406,11 +407,26 @@ class VideoProcessor:
             
             logger.info(f"✅ Все алгоритмические анализы завершены. Оценка уровня: {estimated_grade}")
 
+            # Общий балл техники (среднее по 7 базовым метрикам)
+            overall_technique_score = 0.0
+            if avg_technique_metrics:
+                overall_values = [
+                    avg_technique_metrics.get('quiet_feet', 0),
+                    avg_technique_metrics.get('hip_position', 0),
+                    avg_technique_metrics.get('diagonal', 0),
+                    avg_technique_metrics.get('route_reading', 0),
+                    avg_technique_metrics.get('rhythm', 0),
+                    avg_technique_metrics.get('dynamic_control', 0),
+                    avg_technique_metrics.get('grip_release', 0),
+                ]
+                overall_values = [v for v in overall_values if isinstance(v, (int, float))]
+                if overall_values:
+                    overall_technique_score = sum(overall_values) / len(overall_values)
+
             # Полный результат
             result = {
                 # Базовые данные
                 'processed_video_path': str(output_path),
-                'csv_path': str(csv_path),
                 'duration': duration,
                 'total_frames': total_frames,
                 'processed_frames': processed_count,
@@ -496,17 +512,13 @@ class VideoProcessor:
                 'technique_metrics': avg_technique_metrics,
                 'additional_metrics': avg_additional_metrics,
                 'swot_analysis': swot_analysis,
-                'estimated_grade': estimated_grade
+                'estimated_grade': estimated_grade,
+                'overall_technique_score': overall_technique_score
             }
             
             # ========== ГЕНЕРАЦИЯ ДАШБОРДА ==========
             logger.info("Генерация дашборда...")
             try:
-                # #region agent log
-                with open('/home/user/с винды/ClimbAI/telegram_bot_bouldervision/.cursor/debug.log', 'a') as f:
-                    import json
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"processor.py:398","message":"dashboard generation start","data":{},"timestamp":int(__import__('time').time()*1000)})+'\n')
-                # #endregion
                 from app.reports.dashboard import DashboardGenerator
                 
                 # Подготавливаем данные для дашборда (НОВАЯ КОНЦЕПЦИЯ)
@@ -535,28 +547,13 @@ class VideoProcessor:
                 dashboard_gen = DashboardGenerator()
                 dashboard_path = TEMP_DIR / f"dashboard_{video_path.stem}.png"
                 
-                # #region agent log
-                with open('/home/user/с винды/ClimbAI/telegram_bot_bouldervision/.cursor/debug.log', 'a') as f:
-                    import json
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"processor.py:421","message":"dashboard generation before call","data":{"dashboard_path":str(dashboard_path),"has_metrics":bool(dashboard_data.get('metrics'))},"timestamp":int(__import__('time').time()*1000)})+'\n')
-                # #endregion
                 
                 dashboard_gen.generate_dashboard(dashboard_data, dashboard_path, format="png")
                 
-                # #region agent log
-                with open('/home/user/с винды/ClimbAI/telegram_bot_bouldervision/.cursor/debug.log', 'a') as f:
-                    import json
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"processor.py:428","message":"dashboard generation success","data":{"dashboard_path":str(dashboard_path),"file_exists":dashboard_path.exists()},"timestamp":int(__import__('time').time()*1000)})+'\n')
-                # #endregion
                 
                 result['dashboard_path'] = str(dashboard_path)
                 logger.info(f"✅ Дашборд сохранен: {dashboard_path}")
             except Exception as e:
-                # #region agent log
-                with open('/home/user/с винды/ClimbAI/telegram_bot_bouldervision/.cursor/debug.log', 'a') as f:
-                    import json
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"processor.py:432","message":"dashboard generation error","data":{"error":str(e),"error_type":type(e).__name__},"timestamp":int(__import__('time').time()*1000)})+'\n')
-                # #endregion
                 logger.warning(f"⚠️ Не удалось создать дашборд: {e}")
                 result['dashboard_path'] = None
             
@@ -610,8 +607,8 @@ class VideoProcessor:
             'trajectory': '📈 Траектория - полный путь движения',
         }
 
-        # Добавляем holds только если есть детектор
-        if self.holds_detector and self.holds_detector.is_initialized:
+        # Добавляем holds только если доступен ключ
+        if ENABLE_HOLD_DETECTION and ROBOFLOW_API_KEY:
             overlays['holds'] = '🎯 Зацепы - детекция и связи с конечностями'
         else:
             overlays['holds'] = '🎯 Зацепы (требуется ROBOFLOW_API_KEY)'

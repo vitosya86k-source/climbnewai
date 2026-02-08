@@ -9,6 +9,8 @@ import yaml
 from typing import Dict, List, Any, Optional
 from pathlib import Path
 import logging
+import ast
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -221,12 +223,15 @@ class SWOTGenerator:
                 'recovery': "Научитесь отдыхать на маршруте — сможете лезть длиннее на {time}% времени."
             },
             'threats': {
-                'shoulder': "{side} плечо — зажим в {count} точках маршрута. Риск импинджмента при сохранении паттерна.",
-                'elbow': "{side} локоть — частые углы <70° под нагрузкой. Риск эпикондилита («локоть скалолаза»).",
-                'knee_rotation': "{side} колено — ротация под нагрузкой {count} раз за пролаз. Риск повреждения мениска.",
-                'lower_back': "Поясница — скручивание {angle}° под нагрузкой. Риск протрузии при хроническом паттерне.",
-                'exhaustion_critical': "Истощение {percent}% — последняя часть маршрута в красной зоне. Падение контроля = риск срыва.",
-                'overtraining': "Паттерн указывает на перетренированность: рекомендован отдых или снижение нагрузки."
+                'shoulder': "{side} плечо — зажим в {count} точках маршрута. Если паттерн сохранится, плечо начнёт ограничивать амплитуду. Обратите внимание на расслабление при перехватах.",
+                'elbow': "{side} локоть — частые острые углы под нагрузкой. Со временем это снизит силу хвата и комфорт на длинных маршрутах. Обратите внимание на выпрямление рук в промежуточных позициях.",
+                'knee_rotation': "{side} колено — ротация под нагрузкой {count} раз за пролаз. Такой паттерн постепенно снижает стабильность на «флагах» и накатках. Обратите внимание на постановку стопы перед нагрузкой.",
+                'lower_back': "Поясница — скручивание {angle}° под нагрузкой. При регулярном повторении это ограничит контроль на нависаниях. Обратите внимание на включение кора перед силовыми ходами.",
+                'exhaustion_critical': "Истощение {percent}% — последняя часть маршрута в красной зоне. Контроль падает, движения становятся случайными. Обратите внимание на паузы для восстановления до финишной секции.",
+                'overtraining': "Паттерн указывает на накопленную усталость: техника деградирует от попытки к попытке. Обратите внимание — сейчас отдых даст больше прогресса, чем ещё один подход.",
+                'productivity_decline': "Продуктивность падает на {drop}% во второй половине маршрута — движения перестают приближать к цели. Обратите внимание: это сигнал пересмотреть тактику прохождения, а не «долезать на характере».",
+                'economy_drain': "Расход энергии в {ratio}× выше нормы — на маршрутах длиннее {max_moves} ходов запас закончится раньше топа. Обратите внимание на лишние движения в средней части маршрута.",
+                'balance_compensation': "Компенсация баланса руками в {count} точках — предплечья устают быстрее, чем должны. Обратите внимание на перенос веса на ноги перед каждым перехватом."
             }
         }
     
@@ -256,7 +261,12 @@ class SWOTGenerator:
             'threats': []
         }
         
-        raw_data = raw_data or {}
+        raw_data = self._build_raw_data(
+            technique_metrics=technique_metrics,
+            additional_metrics=additional_metrics,
+            tension_data=tension_data,
+            raw_data=raw_data or {}
+        )
         
         # === STRENGTHS (метрики >= 75%) ===
         all_metrics = {**technique_metrics, **additional_metrics}
@@ -466,65 +476,75 @@ class SWOTGenerator:
             return None
         
         template = opp_templates[metric_name]
+        if isinstance(template, str):
+            try:
+                text = template.format(**raw_data)
+                return {'text': text, 'metric': metric_name}
+            except Exception:
+                return {'text': template, 'metric': metric_name}
         
+        current_score = weakness['score']
+
+        # Переменные для расчётов в формулах и условиях
+        variables = dict(raw_data)
+        variables.update({
+            'score': current_score,
+            f'{metric_name}_score': current_score
+        })
+        if metric_name == 'hip_position':
+            variables['hip_score'] = current_score
+        if metric_name == 'quiet_feet':
+            variables['quiet_feet_score'] = current_score
+        if metric_name == 'grip_release':
+            variables['grip_score'] = current_score
+        if metric_name == 'rhythm':
+            variables['rhythm_score'] = current_score
+        if metric_name == 'recovery':
+            variables['recovery_score'] = current_score
+
         # Проверяем условие из шаблона
         if 'condition' in template:
-            # Вычисляем условие (например, "hip_score < 70")
             condition = template['condition']
-            current_score = weakness['score']
-            
-            # Подставляем значения в условие
-            condition_eval = condition.replace(f'{metric_name}_score', str(current_score))
-            # Простая проверка условий
-            try:
-                if '<' in condition_eval:
-                    threshold = float(condition_eval.split('<')[1].strip())
-                    if not (current_score < threshold):
-                        return None
-                elif '>' in condition_eval:
-                    threshold = float(condition_eval.split('>')[1].strip())
-                    if not (current_score > threshold):
-                        return None
-            except:
-                pass  # Если не удалось проверить, продолжаем
+            if not self._check_condition(condition, variables):
+                return None
         
         # Рассчитываем значения для подстановки из шаблона
         values = {}
         if 'calculation' in template:
             calc = template['calculation']
-            current_score = weakness['score']
-            
             for key, formula in calc.items():
                 try:
-                    # Подставляем значения в формулу
-                    formula_eval = formula.replace(f'{metric_name}_score', str(current_score))
-                    # Простые вычисления
-                    if 'min(' in formula_eval:
-                        # min(hip_score + 20, 85)
-                        expr = formula_eval.replace('min(', '').replace(')', '')
-                        parts = expr.split(',')
-                        val1 = eval(parts[0].replace(f'{metric_name}_score', str(current_score)))
-                        val2 = float(parts[1].strip())
-                        values[key] = int(min(val1, val2))
-                    elif '*' in formula_eval or '+' in formula_eval or '-' in formula_eval:
-                        # Простые арифметические операции
-                        formula_eval = formula_eval.replace(f'{metric_name}_score', str(current_score))
-                        values[key] = int(eval(formula_eval))
-                    else:
-                        values[key] = int(eval(formula_eval.replace(f'{metric_name}_score', str(current_score))))
+                    val = self._safe_eval_arith(formula, variables)
+                    values[key] = int(val)
+                    variables[key] = float(val)
                 except Exception as e:
                     logger.warning(f"Ошибка вычисления {key} для {metric_name}: {e}")
         
         # Дополнительные значения из метрик
         if metric_name == 'leg_activation' or metric_name == 'leg_efficiency':
             values['current'] = int(all_metrics.get('leg_efficiency', 50))
+
+        # Контекстные значения для корректной подстановки
+        if metric_name == 'quiet_feet':
+            repositions = int(raw_data.get('repositions', 1))
+            norm = int(raw_data.get('norm', 1))
+            values.setdefault('saved', max(1, repositions - norm))
+            values.setdefault('energy', int(round(max(5, (100 - weakness['score']) / 2))))
+        if metric_name == 'rhythm':
+            values.setdefault('saved', int(round(max(5, (100 - weakness['score']) / 2))))
+        if metric_name == 'hip_position':
+            values.setdefault('target', raw_data.get('target'))
+            values.setdefault('reduction', raw_data.get('reduction'))
+        if metric_name == 'recovery':
+            values.setdefault('time', int(raw_data.get('recovery_time', 10)))
         
         # Если нет расчетов, используем score напрямую
         if not values and 'text' in template:
             values = {'score': int(weakness['score'])}
         
         try:
-            text = template['text'].format(**values, **raw_data)
+            format_data = {**raw_data, **values}
+            text = template['text'].format(**format_data)
             return {'text': text, 'metric': metric_name}
         except Exception as e:
             logger.warning(f"Ошибка форматирования opportunity для {metric_name}: {e}, values: {values}")
@@ -551,15 +571,22 @@ class SWOTGenerator:
         
         # Проходим по всем шаблонам угроз
         for threat_type, template in threat_templates.items():
-            if not isinstance(template, dict) or 'condition' not in template:
+            template_text = None
+            condition = None
+            if isinstance(template, dict):
+                template_text = template.get('text')
+                condition = template.get('condition')
+            elif isinstance(template, str):
+                template_text = template
+
+            if not template_text:
                 continue
             
-            condition = template['condition']
             condition_met = False
             
             # Проверяем условие
             try:
-                if 'tension_count >= 3' in condition:
+                if condition and 'tension_count >= 3' in condition:
                     # Для плеч и других зон напряжения
                     if tension_data:
                         for side in ['left', 'right']:
@@ -568,14 +595,14 @@ class SWOTGenerator:
                                 tension_count = tension_data[side_key].get('high_tension_count', 0)
                                 if tension_count >= 3:
                                     condition_met = True
-                                    side_name = template.get('side_map', {}).get(side, side)
-                                    text = template['text'].format(
+                                    side_name = template.get('side_map', {}).get(side, side) if isinstance(template, dict) else side
+                                    text = template_text.format(
                                         side=side_name,
                                         count=tension_count
                                     )
                                     threats.append({'text': text, 'type': threat_type, 'side': side})
                 
-                elif 'acute_angle_count >= 5' in condition:
+                elif condition and 'acute_angle_count >= 5' in condition:
                     # Для локтей
                     if tension_data:
                         for side in ['left', 'right']:
@@ -584,11 +611,11 @@ class SWOTGenerator:
                                 angle_count = tension_data[side_key].get('acute_angle_count', 0)
                                 if angle_count >= 5:
                                     condition_met = True
-                                    side_name = template.get('side_map', {}).get(side, side)
-                                    text = template['text'].format(side=side_name)
+                                    side_name = template.get('side_map', {}).get(side, side) if isinstance(template, dict) else side
+                                    text = template_text.format(side=side_name)
                                     threats.append({'text': text, 'type': threat_type, 'side': side})
                 
-                elif 'rotation_count >= 2' in condition:
+                elif condition and 'rotation_count >= 2' in condition:
                     # Для коленей
                     if tension_data:
                         for side in ['left', 'right']:
@@ -597,23 +624,208 @@ class SWOTGenerator:
                                 rotation_count = tension_data[side_key].get('rotation_count', 0)
                                 if rotation_count >= 2:
                                     condition_met = True
-                                    side_name = template.get('side_map', {}).get(side, side)
-                                    text = template['text'].format(side=side_name, count=rotation_count)
+                                    side_name = template.get('side_map', {}).get(side, side) if isinstance(template, dict) else side
+                                    text = template_text.format(side=side_name, count=rotation_count)
                                     threats.append({'text': text, 'type': threat_type, 'side': side})
                 
-                elif 'twist_angle >= 30' in condition:
+                elif condition and 'twist_angle >= 30' in condition:
                     # Для поясницы
                     if tension_data and 'lower_back' in tension_data:
                         twist_angle = tension_data['lower_back'].get('twist_angle', 0)
                         if twist_angle >= 30:
                             condition_met = True
-                            text = template['text'].format(angle=int(twist_angle))
+                            text = template_text.format(angle=int(twist_angle))
                             threats.append({'text': text, 'type': threat_type})
+                elif threat_type == 'productivity_decline':
+                    productivity = float(additional_metrics.get('productivity', 50))
+                    if productivity < 40:
+                        drop = int(max(10, (50 - productivity) * 1.2))
+                        text = template_text.format(drop=drop)
+                        threats.append({'text': text, 'type': threat_type})
+                elif threat_type == 'economy_drain':
+                    economy = float(additional_metrics.get('economy', 50))
+                    if economy < 40:
+                        ratio = round(1 + (50 - economy) / 25, 1)
+                        max_moves = max(10, int(raw_data.get('hold_count', 30)))
+                        text = template_text.format(ratio=ratio, max_moves=max_moves)
+                        threats.append({'text': text, 'type': threat_type})
+                elif threat_type == 'balance_compensation':
+                    balance = float(additional_metrics.get('balance', 50))
+                    if balance < 40:
+                        count = max(2, int((40 - balance) / 5))
+                        text = template_text.format(count=count)
+                        threats.append({'text': text, 'type': threat_type})
                 
             except Exception as e:
                 logger.warning(f"Ошибка проверки условия для {threat_type}: {e}")
         
         return threats
+
+    def _build_raw_data(
+        self,
+        technique_metrics: Dict[str, float],
+        additional_metrics: Dict[str, float],
+        tension_data: Optional[Dict[str, Any]],
+        raw_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Заполняет недостающие параметры для шаблонов, вычисляя их из метрик."""
+        data = dict(raw_data or {})
+
+        # Базовые метрики
+        quiet_feet = float(technique_metrics.get('quiet_feet', 50))
+        hip_position = float(technique_metrics.get('hip_position', 50))
+        diagonal = float(technique_metrics.get('diagonal', 50))
+        route_reading = float(technique_metrics.get('route_reading', 50))
+        rhythm = float(technique_metrics.get('rhythm', 50))
+        dynamic_control = float(technique_metrics.get('dynamic_control', 50))
+        grip_release = float(technique_metrics.get('grip_release', 50))
+
+        # Оценка уровня
+        grade = self.estimate_grade(technique_metrics)
+        data.setdefault('grade', grade.replace('—', '-'))
+
+        duration = float(data.get('duration', 60))
+
+        # Quiet Feet: перестановки и норма
+        repositions = max(1, int(round(1 + (100 - quiet_feet) / 10)))
+        norm = max(1, int(round(1 + (100 - quiet_feet) / 25)))
+        data.setdefault('repositions', repositions)
+        data.setdefault('norm', norm)
+        data.setdefault('times', round(repositions / max(norm, 1), 1))
+        data.setdefault('current_repositions', repositions)
+        data.setdefault('target_repositions', max(1, repositions - 1))
+        data.setdefault('hold_count', max(1, int(round(duration / 2))))
+
+        # Hip Position: угол и перегрузка рук
+        angle = int(round(max(5, (100 - hip_position) * 0.6 + 5)))
+        overload = int(round(max(0, (100 - hip_position) * 0.8)))
+        data.setdefault('angle', angle)
+        data.setdefault('overload', overload)
+        data.setdefault('target', min(90, int(round(hip_position + 15))))
+        data.setdefault('reduction', int(round(max(5, (100 - hip_position) * 0.4))))
+
+        # Route Reading: время перед стартом и паузы
+        data.setdefault('start_time', round(1 + (route_reading / 100) * 4, 1))
+        data.setdefault('pauses', int(round(route_reading / 30)))
+
+        # Rhythm: разброс темпа
+        data.setdefault('variance', int(round(50 + (100 - rhythm) * 3)))
+        data.setdefault('saved', int(round(max(5, (100 - rhythm) / 2))))
+
+        # Dynamic control: время стабилизации (секунды)
+        data.setdefault('time', round(0.3 + (100 - dynamic_control) / 100 * 1.5, 2))
+
+        # Grip release: экономия энергии (если потребуется)
+        data.setdefault('energy', int(round(max(5, (100 - grip_release) / 2))))
+
+        # Дополнительные метрики
+        exhaustion = float(additional_metrics.get('exhaustion', 0))
+        recovery = float(additional_metrics.get('recovery', 50))
+        arm_eff = float(additional_metrics.get('arm_efficiency', 50))
+
+        data.setdefault('percent', int(round(exhaustion)))
+        data.setdefault('drop', int(round(exhaustion * 0.6)))
+        data.setdefault('exhaustion', exhaustion)
+
+        # Оценка нагрузки на руки/ноги на основе arm_efficiency
+        arm_load = int(round(max(20, min(80, 70 - (arm_eff - 50) * 0.6))))
+        leg_load = int(round(max(20, min(80, 100 - arm_load))))
+        data.setdefault('arm_load', arm_load)
+        data.setdefault('leg_load', leg_load)
+        data.setdefault('current', leg_load)
+
+        # Восстановление
+        data.setdefault('time_gain', int(round(max(1, recovery / 20))))
+        data.setdefault('recovery_time', int(round(max(5, recovery / 2))))
+
+        # Потенциал (простая оценка: +1 ступень)
+        grade_steps = [
+            "до 5a", "5a—5b", "5b—5c", "5c—6a",
+            "6a—6b", "6b—6c", "6c—7a", "7a—7b", "7b+"
+        ]
+        current_idx = grade_steps.index(grade) if grade in grade_steps else 0
+        potential_idx = min(len(grade_steps) - 1, current_idx + 1)
+        data.setdefault('potential_grade', grade_steps[potential_idx])
+
+        return data
+
+    def _safe_eval_arith(self, expr: str, variables: Dict[str, Any]) -> float:
+        """Безопасное вычисление простых арифметических выражений с переменными."""
+        expr = expr.strip()
+
+        node = ast.parse(expr, mode='eval')
+
+        def _eval(n):
+            if isinstance(n, ast.Expression):
+                return _eval(n.body)
+            if isinstance(n, ast.Constant):
+                return float(n.value)
+            if isinstance(n, ast.Num):
+                return float(n.n)
+            if isinstance(n, ast.Name):
+                if n.id in variables:
+                    return float(variables[n.id])
+                raise ValueError(f"Неизвестная переменная: {n.id}")
+            if isinstance(n, ast.BinOp):
+                left = _eval(n.left)
+                right = _eval(n.right)
+                if isinstance(n.op, ast.Add):
+                    return left + right
+                if isinstance(n.op, ast.Sub):
+                    return left - right
+                if isinstance(n.op, ast.Mult):
+                    return left * right
+                if isinstance(n.op, ast.Div):
+                    return left / right
+                if isinstance(n.op, ast.Pow):
+                    return left ** right
+                raise ValueError("Недопустимая операция")
+            if isinstance(n, ast.UnaryOp):
+                val = _eval(n.operand)
+                if isinstance(n.op, ast.UAdd):
+                    return +val
+                if isinstance(n.op, ast.USub):
+                    return -val
+                raise ValueError("Недопустимая унарная операция")
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name):
+                func = n.func.id
+                args = [_eval(a) for a in n.args]
+                if func == 'min' and len(args) >= 2:
+                    return min(args)
+                if func == 'max' and len(args) >= 2:
+                    return max(args)
+                raise ValueError("Недопустимая функция")
+            raise ValueError("Недопустимое выражение")
+
+        return float(_eval(node))
+
+    def _check_condition(self, condition: str, variables: Dict[str, Any]) -> bool:
+        """Проверка простых условий с AND."""
+        parts = [p.strip() for p in condition.split("AND")]
+        for part in parts:
+            if not part:
+                continue
+            op = None
+            for candidate in ["<=", ">=", "==", "<", ">"]:
+                if candidate in part:
+                    op = candidate
+                    left, right = part.split(candidate, 1)
+                    left_val = self._safe_eval_arith(left.strip(), variables)
+                    right_val = self._safe_eval_arith(right.strip(), variables)
+                    if op == "<=" and not (left_val <= right_val):
+                        return False
+                    if op == ">=" and not (left_val >= right_val):
+                        return False
+                    if op == "==" and not (left_val == right_val):
+                        return False
+                    if op == "<" and not (left_val < right_val):
+                        return False
+                    if op == ">" and not (left_val > right_val):
+                        return False
+                    break
+            if op is None:
+                return False
+        return True
     
     def estimate_grade(self, technique_metrics: Dict[str, float]) -> str:
         """

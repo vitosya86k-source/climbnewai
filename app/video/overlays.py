@@ -501,16 +501,21 @@ class VideoOverlays:
             validated_metrics[key] = max(0.0, min(100.0, float(val)))
         metrics = validated_metrics
         
-        # #region agent log
-        with open('/home/user/с винды/ClimbAI/telegram_bot_bouldervision/.cursor/debug.log', 'a') as f:
-            import json
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"overlays.py:475","message":"metrics after validation","data":{"validated_metrics":validated_metrics},"timestamp":int(__import__('time').time()*1000)})+'\n')
-        # #endregion
 
         # Параметры паутинки
         center_x = w - 150
-        center_y = 150
         radius = 100
+        label_distance = radius + 25
+        top_align = 40
+        center_y = self._clamp_spider_center_y(
+            h,
+            desired_y=label_distance + top_align,
+            radius=radius,
+            label_distance=label_distance,
+            title_offset=30,
+            padding_top=top_align,
+            padding_bottom=70,
+        )
 
         # НОВАЯ КОНЦЕПЦИЯ: 7 базовых метрик техники
         categories = ['QF', 'HP', 'ПВ', 'СЧ', 'РТ', 'ДН', 'GR']
@@ -580,14 +585,17 @@ class VideoOverlays:
             point_y = int(center_y + radius * value * math.sin(angle))
             points.append((point_x, point_y))
 
-            # Значение рядом с точкой (исправлено форматирование)
+            # Значение рядом с точкой (сдвигаем от линии)
             value_text = f"{int(value_raw)}"
             text_size_val = cv2.getTextSize(value_text, cv2.FONT_HERSHEY_SIMPLEX, 0.35, 1)[0]
+            offset = 12
+            text_x = int(point_x + offset * math.cos(angle))
+            text_y = int(point_y + offset * math.sin(angle))
             # Фон для значения
-            cv2.rectangle(result, (point_x + 5 - 2, point_y - text_size_val[1] - 5 - 2),
-                         (point_x + 5 + text_size_val[0] + 2, point_y - 5 + 2), (0, 0, 0), -1)
+            cv2.rectangle(result, (text_x - 2, text_y - text_size_val[1] - 2),
+                         (text_x + text_size_val[0] + 2, text_y + 2), (0, 0, 0), -1)
             cv2.putText(result, value_text,
-                       (point_x + 5, point_y - 5),
+                       (text_x, text_y),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.35, color, 1, cv2.LINE_AA)
 
         # Заполненный многоугольник
@@ -640,11 +648,6 @@ class VideoOverlays:
         # Рассчитываем распределение веса
         weight_distribution = self._calculate_weight_distribution(landmarks)
         
-        # #region agent log
-        with open('/home/user/с винды/ClimbAI/telegram_bot_bouldervision/.cursor/debug.log', 'a') as f:
-            import json
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"overlays.py:596","message":"weight_distribution calculated","data":{"weight_distribution":weight_distribution},"timestamp":int(__import__('time').time()*1000)})+'\n')
-        # #endregion
 
         # Точки для отображения нагрузки
         limb_points = {
@@ -655,11 +658,6 @@ class VideoOverlays:
         }
 
         for name, (idx, load_percent) in limb_points.items():
-            # #region agent log
-            with open('/home/user/с винды/ClimbAI/telegram_bot_bouldervision/.cursor/debug.log', 'a') as f:
-                import json
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"overlays.py:607","message":"load_percent value","data":{"name":name,"idx":idx,"load_percent":load_percent,"is_none":load_percent is None,"is_nan":isinstance(load_percent,float) and math.isnan(load_percent)},"timestamp":int(__import__('time').time()*1000)})+'\n')
-            # #endregion
             if idx >= len(landmarks.landmark):
                 continue
 
@@ -700,11 +698,6 @@ class VideoOverlays:
                 load_percent = 0.0
             load_percent = max(0.0, min(100.0, float(load_percent)))
             
-            # #region agent log
-            with open('/home/user/с винды/ClimbAI/telegram_bot_bouldervision/.cursor/debug.log', 'a') as f:
-                import json
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"overlays.py:644","message":"text formatting","data":{"load_percent":load_percent,"text_before_format":f"{load_percent:.1f}%"},"timestamp":int(__import__('time').time()*1000)})+'\n')
-            # #endregion
             
             text = f"{load_percent:.1f}%"
             text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)[0]
@@ -802,11 +795,6 @@ class VideoOverlays:
         h, w = frame.shape[:2]
         result = frame.copy()
 
-        # #region agent log
-        with open('/home/user/с винды/ClimbAI/telegram_bot_bouldervision/.cursor/debug.log', 'a') as f:
-            import json
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"overlays.py:742","message":"ideal_ghost check","data":{"has_ideal_sequence":bool(self.ideal_landmarks_sequence),"ideal_sequence_len":len(self.ideal_landmarks_sequence) if self.ideal_landmarks_sequence else 0},"timestamp":int(__import__('time').time()*1000)})+'\n')
-        # #endregion
         
         # Если нет идеальной последовательности - показываем только текущего
         # с подсказкой
@@ -1086,11 +1074,6 @@ class VideoOverlays:
         h, w = frame.shape[:2]
         result = frame.copy()
 
-        # #region agent log
-        with open('/home/user/с винды/ClimbAI/telegram_bot_bouldervision/.cursor/debug.log', 'a') as f:
-            import json
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"overlays.py:1000","message":"draw_full_analysis called","data":{"has_landmarks":landmarks is not None,"metrics_history_len":len(self.metrics_history),"tension_history_len":len(self.tension_history),"velocity_history_len":len(self.velocity_history)},"timestamp":int(__import__('time').time()*1000)})+'\n')
-        # #endregion
 
         if not landmarks:
             # Если нет landmarks, показываем сообщение
@@ -1111,18 +1094,23 @@ class VideoOverlays:
         
         # === ЛЕВЫЙ ВЕРХНИЙ УГОЛ: Паутинка с 7 метриками техники ===
         spider_center_x = 150  # Отступ слева, чтобы все надписи поместились
-        spider_center_y = 150  # Отступ сверху, чтобы все надписи поместились
+        spider_radius = 80
+        spider_label_distance = spider_radius + 25
+        top_align = 40
+        spider_center_y = self._clamp_spider_center_y(
+            h,
+            desired_y=spider_label_distance + top_align,
+            radius=spider_radius,
+            label_distance=spider_label_distance,
+            padding_top=top_align,
+            padding_bottom=70,
+        )
         
         # === ПРАВЫЙ ВЕРХНИЙ УГОЛ: Показатели нагрузки ===
         self._draw_load_indicators(result, landmarks, frame_data)
         
         # ВСЕГДА используем новые метрики техники (7 осей)
         if self.technique_metrics_history:
-            # #region agent log
-            with open('/home/user/с винды/ClimbAI/telegram_bot_bouldervision/.cursor/debug.log', 'a') as f:
-                import json
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"overlays.py:1105","message":"draw_full_analysis using new spider","data":{"technique_metrics_count":len(self.technique_metrics_history)},"timestamp":int(__import__('time').time()*1000)})+'\n')
-            # #endregion
             self._draw_mini_spider_new(result, spider_center_x, spider_center_y)
             # Вычисляем avg_score из новых метрик
             metrics = self.technique_metrics_history[-1]
@@ -1132,11 +1120,6 @@ class VideoOverlays:
             else:
                 avg_score = 50.0
         else:
-            # #region agent log
-            with open('/home/user/с винды/ClimbAI/telegram_bot_bouldervision/.cursor/debug.log', 'a') as f:
-                import json
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"overlays.py:1110","message":"draw_full_analysis fallback to old spider","data":{"metrics_history_count":len(self.metrics_history)},"timestamp":int(__import__('time').time()*1000)})+'\n')
-            # #endregion
             # Fallback на старую паутинку если новых метрик нет (тоже в верхнем левом углу)
             self._draw_mini_spider(result, spider_center_x, spider_center_y)
             # Вычисляем avg_score из старых метрик
@@ -1158,6 +1141,30 @@ class VideoOverlays:
         return result
 
     # ========== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ==========
+    def _clamp_spider_center_y(
+        self,
+        frame_height: int,
+        desired_y: int,
+        radius: int,
+        label_distance: int,
+        title_offset: int = 0,
+        padding_top: int = 30,
+        padding_bottom: int = 30,
+    ) -> int:
+        """
+        Гарантирует, что паутинка с подписями не выйдет за верх/низ кадра.
+        """
+        text_pad = 12
+        top_extent = max(label_distance + text_pad, radius + title_offset)
+        bottom_extent = label_distance + text_pad
+
+        min_y = top_extent + padding_top
+        max_y = frame_height - bottom_extent - padding_bottom
+
+        if max_y < min_y:
+            return max(0, min(frame_height - 1, frame_height // 2))
+
+        return int(max(min_y, min(desired_y, max_y)))
 
     def _draw_skeleton_light(self, frame: np.ndarray, landmarks):
         """Нарисовать полупрозрачный скелет"""
@@ -1413,9 +1420,12 @@ class VideoOverlays:
             py = int(cy + radius * value * math.sin(angle))
             points.append((px, py))
             
-            # Значение рядом с точкой
+            # Значение рядом с точкой (сдвиг от линии)
             value_text = f"{int(value_raw)}"
-            cv2.putText(frame, value_text, (px + 3, py - 3),
+            offset = 8
+            tx = int(px + offset * math.cos(angle))
+            ty = int(py + offset * math.sin(angle))
+            cv2.putText(frame, value_text, (tx, ty),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.3, color, 1, cv2.LINE_AA)
 
         # Многоугольник
@@ -1432,11 +1442,6 @@ class VideoOverlays:
         """Нарисовать паутинку с НОВЫМИ 7 метриками техники (УВЕЛИЧЕННАЯ)"""
         if not self.technique_metrics_history:
             # Fallback на старую паутинку
-            # #region agent log
-            with open('/home/user/с винды/ClimbAI/telegram_bot_bouldervision/.cursor/debug.log', 'a') as f:
-                import json as _json
-                f.write(_json.dumps({"sessionId":"debug-session","runId":"run2","hypothesisId":"H-B","location":"overlays.py:_draw_mini_spider_new:fallback","message":"No technique_metrics_history, using fallback","data":{"technique_metrics_history_len":0},"timestamp":int(__import__('time').time()*1000)})+'\n')
-            # #endregion
             self._draw_mini_spider(frame, cx, cy)
             return
         
@@ -1452,11 +1457,6 @@ class VideoOverlays:
             validated[key] = max(0.0, min(100.0, float(val)))
         metrics = validated
         
-        # #region agent log
-        with open('/home/user/с винды/ClimbAI/telegram_bot_bouldervision/.cursor/debug.log', 'a') as f:
-            import json as _json
-            f.write(_json.dumps({"sessionId":"debug-session","runId":"run2","hypothesisId":"H-B","location":"overlays.py:_draw_mini_spider_new:metrics","message":"Spider metrics values","data":{"metrics":metrics,"cx":cx,"cy":cy},"timestamp":int(__import__('time').time()*1000)})+'\n')
-        # #endregion
         
         # === КОНФИГУРАЦИЯ (увеличено для презентабельности) ===
         radius = 80  # Увеличено с 55 для лучшей видимости
