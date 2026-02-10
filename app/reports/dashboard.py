@@ -125,13 +125,15 @@ class DashboardGenerator:
         
         # Уровень берем из анализа или вычисляем заново
         grade = analysis_data.get('estimated_grade', 'N/A')
+        grade_score = analysis_data.get('grade_score')
         if grade == 'N/A' and technique_metrics:
             # Вычисляем уровень на основе взвешенной суммы
             from app.analysis.swot_generator import SWOTGenerator
             swot_gen = SWOTGenerator()
             grade = swot_gen.estimate_grade(technique_metrics)
+            grade_score = None
         
-        self._create_technique_section(fig, technique_metrics, overall_score, grade)
+        self._create_technique_section(fig, technique_metrics, overall_score, grade, grade_score)
         
         # === SWOT GRID ===
         swot = analysis_data.get('swot_analysis', {})
@@ -163,7 +165,7 @@ class DashboardGenerator:
                 color=DASHBOARD_COLORS['accent_blue'], ha='left', va='top', transform=fig.transFigure)
         # Подзаголовок "BoulderVision Analysis" убран — дата и время только в футере
     
-    def _draw_metrics_list(self, ax, technique_metrics: Dict[str, float], overall_score: float, grade: str):
+    def _draw_metrics_list(self, ax, technique_metrics: Dict[str, float], overall_score: float, grade: str, grade_score: float | None = None):
         """Отрисовка списка метрик с прогресс-барами"""
         ax.set_xlim(0, 100)
         ax.set_ylim(0, 100)
@@ -257,11 +259,14 @@ class DashboardGenerator:
         summary_y = y_start - (len(metrics_info) - 1) * y_step - 14
         ax.text(x_label, summary_y, f"Общий балл: {int(overall_score)}/100",
                 fontsize=12, fontweight='bold', color=DASHBOARD_COLORS['text_primary'], va='center')
-        ax.text(x_label, summary_y - 8, f"Уровень: {grade}",
+        level_text = f"Уровень: {grade}"
+        if isinstance(grade_score, (int, float)):
+            level_text = f"Уровень: {grade} (score: {grade_score:.1f})"
+        ax.text(x_label, summary_y - 8, level_text,
                 fontsize=11, color=DASHBOARD_COLORS['accent_blue'], va='center')
     
     def _create_technique_section(self, fig, technique_metrics: Dict[str, float], 
-                                  overall_score: float, grade: str):
+                                  overall_score: float, grade: str, grade_score: float | None = None):
         """Создание секции техники с паутинкой И списком метрик"""
         # Создаём gridspec для двух колонок
         gs = fig.add_gridspec(1, 2, width_ratios=[1.2, 1], wspace=0.1,
@@ -270,7 +275,7 @@ class DashboardGenerator:
         
         # Левая колонка: список метрик
         ax_list = fig.add_subplot(gs[0, 0])
-        self._draw_metrics_list(ax_list, technique_metrics, overall_score, grade)
+        self._draw_metrics_list(ax_list, technique_metrics, overall_score, grade, grade_score)
         
         # Правая колонка: паутинка
         ax_spider = fig.add_subplot(gs[0, 1], projection='polar')
