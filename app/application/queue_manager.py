@@ -125,7 +125,7 @@ async def _process_job(application, job: VideoJob, worker_id: int) -> None:
                 pass
             return
 
-        if progress % 20 == 0:
+        if progress < 20 or progress % 20 == 0:
             try:
                 asyncio.run_coroutine_threadsafe(
                     bot.edit_message_text(
