@@ -1091,10 +1091,10 @@ class VideoOverlays:
         self._draw_skeleton_with_tension(result, landmarks)
         
         # === ЛЕВЫЙ ВЕРХНИЙ УГОЛ: Паутинка с 7 метриками техники ===
-        spider_center_x = 115  # Ближе к левому краю
-        spider_radius = 70
-        spider_label_distance = spider_radius + 20
-        top_align = 35
+        spider_center_x = 70  # Ближе к левому краю
+        spider_radius = 56
+        spider_label_distance = spider_radius + 14
+        top_align = 24
         spider_center_y = self._clamp_spider_center_y(
             h,
             desired_y=spider_label_distance + top_align,
@@ -1262,7 +1262,7 @@ class VideoOverlays:
             
             # Определяем цвет и размер кружочка
             color = self._tension_to_color(t)
-            circle_radius = 18  # Размер кружочка (меньше)
+            circle_radius = 14  # Размер кружочка (меньше)
             
             # Рисуем кружочек с заливкой
             overlay = frame.copy()
@@ -1307,13 +1307,13 @@ class VideoOverlays:
         balance = max(0, min(100, int(balance)))
         
         # Позиция: правый верхний угол
-        start_x = w - 260  # От правого края дальше
-        start_y = 32  # Выше
-        line_height = 24  # Чуть плотнее
+        start_x = w - 240  # Ближе к правому краю
+        start_y = 22
+        line_height = 22
         
         # Текст (увеличен размер)
         font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 0.62
+        font_scale = 0.56
         thickness = 2
         
         indicators = [
