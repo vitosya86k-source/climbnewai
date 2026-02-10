@@ -108,6 +108,23 @@ async def _process_job(application, job: VideoJob, worker_id: int) -> None:
     processor = VideoProcessor()
 
     def progress_callback(progress, stage):
+        if progress is None:
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=job.status_message_id,
+                        text=(
+                            "🎬 Обрабатываю видео...\n"
+                            f"{stage}"
+                        ),
+                    ),
+                    loop,
+                )
+            except Exception:
+                pass
+            return
+
         if progress % 20 == 0:
             try:
                 asyncio.run_coroutine_threadsafe(

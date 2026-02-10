@@ -247,8 +247,13 @@ class VideoProcessor:
                 
                 # Прогресс
                 if progress_callback and frame_number % 30 == 0:
-                    progress = int((frame_number / total_frames) * 100) if total_frames > 0 else 0
-                    progress_callback(progress, f"Обработка кадра {frame_number}/{total_frames}")
+                    if total_frames > 0:
+                        progress = int((frame_number / total_frames) * 100)
+                        stage = f"Обработка кадра {frame_number}/{total_frames}"
+                    else:
+                        progress = None
+                        stage = f"Обработка кадра {frame_number}"
+                    progress_callback(progress, stage)
                 
                 frame_number += 1
             
