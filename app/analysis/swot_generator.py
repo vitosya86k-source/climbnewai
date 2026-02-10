@@ -834,6 +834,13 @@ class SWOTGenerator:
         Returns:
             строка с диапазоном уровня (например, "6a-6b")
         """
+        try:
+            from grade_algorithm import estimate_grade as estimate_grade_v2
+            grade, _score = estimate_grade_v2(technique_metrics, None)
+            return grade
+        except Exception:
+            pass
+
         weights = {
             'quiet_feet': 0.20,
             'hip_position': 0.20,

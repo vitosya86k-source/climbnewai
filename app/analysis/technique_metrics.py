@@ -47,6 +47,10 @@ class TechniqueMetricsAnalyzer:
         
         self.dynamic_moves: List[Dict[str, Any]] = []  # Динамические движения
         self.hand_trajectories: List[List[Tuple[float, float, float]]] = []  # Траектории рук
+        self.hand_moves_count: int = 0
+        self.dynamic_moves_count: int = 0
+        self.max_reach_ratio: float = 0.0
+        self._last_dynamic_frame: Dict[str, int] = {'left': -999, 'right': -999}
         
         self.route_reading_data: Dict[str, Any] = {
             'first_movement_time': None,
@@ -64,6 +68,10 @@ class TechniqueMetricsAnalyzer:
         self.last_movement_time = None
         self.dynamic_moves = []
         self.hand_trajectories = []
+        self.hand_moves_count = 0
+        self.dynamic_moves_count = 0
+        self.max_reach_ratio = 0.0
+        self._last_dynamic_frame = {'left': -999, 'right': -999}
         self.route_reading_data = {
             'first_movement_time': None,
             'reading_pauses': [],
@@ -96,7 +104,15 @@ class TechniqueMetricsAnalyzer:
             return self._get_default_metrics()
         
         # Обновляем историю позиций
-        self._update_positions_history(landmarks, frame_number, timestamp)
+        moved = self._update_positions_history(landmarks, frame_number, timestamp)
+        if moved:
+            self.hand_moves_count += 1
+
+        # Обновляем разлёт рук относительно роста (оценка растяжек)
+        self._update_reach_ratio(landmarks)
+
+        # Считаем динамические движения на текущем кадре
+        self._update_dynamic_moves(landmarks, timestamp)
         
         # Вычисляем метрики
         metrics = {
@@ -111,9 +127,10 @@ class TechniqueMetricsAnalyzer:
         
         return metrics
     
-    def _update_positions_history(self, landmarks, frame_number: int, timestamp: float):
+    def _update_positions_history(self, landmarks, frame_number: int, timestamp: float) -> bool:
         """Обновление истории позиций конечностей"""
         h, w = 1.0, 1.0  # Нормализованные координаты MediaPipe
+        moved_this_frame = False
         
         # Стопы (лодыжки)
         left_ankle = landmarks.landmark[27] if len(landmarks.landmark) > 27 else None
@@ -146,19 +163,101 @@ class TechniqueMetricsAnalyzer:
         # Определяем движение (если рука или нога переместилась значительно)
         movement_threshold = 0.02  # 2% от размера кадра
         
-        if self.hand_positions_history['left'] and len(self.hand_positions_history['left']) > 1:
-            prev = self.hand_positions_history['left'][-2]
-            curr = self.hand_positions_history['left'][-1]
+        for side in ['left', 'right']:
+            if self.hand_positions_history[side] and len(self.hand_positions_history[side]) > 1:
+                prev = self.hand_positions_history[side][-2]
+                curr = self.hand_positions_history[side][-1]
+                dist = math.sqrt((curr[0] - prev[0])**2 + (curr[1] - prev[1])**2)
+                if dist > movement_threshold:
+                    moved_this_frame = True
+                    if self.last_movement_time is not None:
+                        interval_ms = (timestamp - self.last_movement_time) * 1000
+                        if interval_ms > 0:
+                            self.movement_intervals.append(interval_ms)
+                            if len(self.movement_intervals) > 30:
+                                self.movement_intervals.pop(0)
+                    self.last_movement_time = timestamp
+
+        return moved_this_frame
+
+    def _update_dynamic_moves(self, landmarks, timestamp: float) -> None:
+        """Фиксирует динамические движения рук (для video_stats)."""
+        window = 5
+        dt = window * 0.033  # ~30 FPS
+        velocity_threshold = 0.05
+        if not landmarks:
+            return
+
+        for side, idx in [('left', 15), ('right', 16)]:
+            if len(landmarks.landmark) <= idx:
+                continue
+            lm = landmarks.landmark[idx]
+            if lm.visibility < 0.5:
+                continue
+
+            positions = self.hand_positions_history[side]
+            if len(positions) < window + 1:
+                continue
+
+            prev = positions[-(window + 1)]
+            curr = positions[-1]
             dist = math.sqrt((curr[0] - prev[0])**2 + (curr[1] - prev[1])**2)
-            
-            if dist > movement_threshold:
-                if self.last_movement_time is not None:
-                    interval_ms = (timestamp - self.last_movement_time) * 1000
-                    if interval_ms > 0:
-                        self.movement_intervals.append(interval_ms)
-                        if len(self.movement_intervals) > 30:
-                            self.movement_intervals.pop(0)
-                self.last_movement_time = timestamp
+            velocity = dist / dt if dt > 0 else 0
+
+            if velocity > velocity_threshold:
+                if self.frame_number - self._last_dynamic_frame[side] > window:
+                    self.dynamic_moves_count += 1
+                    self._last_dynamic_frame[side] = self.frame_number
+
+    def _update_reach_ratio(self, landmarks) -> None:
+        """Оценивает разлёт рук относительно роста (max_reach_ratio)."""
+        try:
+            left_wrist = landmarks.landmark[15] if len(landmarks.landmark) > 15 else None
+            right_wrist = landmarks.landmark[16] if len(landmarks.landmark) > 16 else None
+            left_shoulder = landmarks.landmark[11] if len(landmarks.landmark) > 11 else None
+            right_shoulder = landmarks.landmark[12] if len(landmarks.landmark) > 12 else None
+            left_ankle = landmarks.landmark[27] if len(landmarks.landmark) > 27 else None
+            right_ankle = landmarks.landmark[28] if len(landmarks.landmark) > 28 else None
+
+            if not all([left_wrist, right_wrist, left_shoulder, right_shoulder]):
+                return
+            if any([lm.visibility < 0.5 for lm in [left_wrist, right_wrist, left_shoulder, right_shoulder]]):
+                return
+
+            wrist_dist = math.sqrt(
+                (left_wrist.x - right_wrist.x) ** 2 +
+                (left_wrist.y - right_wrist.y) ** 2
+            )
+
+            heights = []
+            if left_ankle and left_ankle.visibility > 0.5:
+                heights.append(math.sqrt((left_shoulder.x - left_ankle.x) ** 2 + (left_shoulder.y - left_ankle.y) ** 2))
+            if right_ankle and right_ankle.visibility > 0.5:
+                heights.append(math.sqrt((right_shoulder.x - right_ankle.x) ** 2 + (right_shoulder.y - right_ankle.y) ** 2))
+
+            if heights:
+                height = sum(heights) / len(heights)
+            else:
+                # fallback: плечи → таз
+                left_hip = landmarks.landmark[23] if len(landmarks.landmark) > 23 else None
+                right_hip = landmarks.landmark[24] if len(landmarks.landmark) > 24 else None
+                if not all([left_hip, right_hip]):
+                    return
+                if any([lm.visibility < 0.5 for lm in [left_hip, right_hip]]):
+                    return
+                hip_center = ((left_hip.x + right_hip.x) / 2, (left_hip.y + right_hip.y) / 2)
+                shoulder_center = ((left_shoulder.x + right_shoulder.x) / 2, (left_shoulder.y + right_shoulder.y) / 2)
+                height = math.sqrt(
+                    (shoulder_center[0] - hip_center[0]) ** 2 +
+                    (shoulder_center[1] - hip_center[1]) ** 2
+                )
+
+            if height > 0:
+                ratio = wrist_dist / height
+                if ratio > self.max_reach_ratio:
+                    self.max_reach_ratio = ratio
+        except Exception:
+            return
     
     def _calculate_quiet_feet(self) -> float:
         """
@@ -653,5 +752,8 @@ class TechniqueMetricsAnalyzer:
                 'left': len(self.hand_positions_history['left']),
                 'right': len(self.hand_positions_history['right'])
             },
-            'movement_intervals_count': len(self.movement_intervals)
+            'movement_intervals_count': len(self.movement_intervals),
+            'hand_moves_count': self.hand_moves_count,
+            'dynamic_moves_count': self.dynamic_moves_count,
+            'max_reach_ratio': self.max_reach_ratio
         }

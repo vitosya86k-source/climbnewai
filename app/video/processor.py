@@ -322,6 +322,16 @@ class VideoProcessor:
                     'quiet_feet': 50.0, 'hip_position': 50.0, 'diagonal': 50.0,
                     'route_reading': 50.0, 'rhythm': 50.0, 'dynamic_control': 50.0, 'grip_release': 50.0
                 }
+
+            # video_stats для нового алгоритма уровня
+            video_stats = {
+                'duration': duration,
+                'total_frames': total_frames,
+                'fps': fps,
+                'hand_moves_count': technique_analyzer.hand_moves_count,
+                'dynamic_moves_count': technique_analyzer.dynamic_moves_count,
+                'max_reach_ratio': technique_analyzer.max_reach_ratio
+            }
             
             # Средние значения дополнительных метрик
             avg_additional_metrics = {}
@@ -353,8 +363,12 @@ class VideoProcessor:
                 }
             )
             
-            # 6. Оценка уровня сложности
-            estimated_grade = swot_generator.estimate_grade(avg_technique_metrics)
+            # 6. Оценка уровня сложности (v2, с video_stats при наличии)
+            try:
+                from grade_algorithm import estimate_grade as estimate_grade_v2
+                estimated_grade, _grade_score = estimate_grade_v2(avg_technique_metrics, video_stats)
+            except Exception:
+                estimated_grade = swot_generator.estimate_grade(avg_technique_metrics)
             
             logger.info(f"✅ Все алгоритмические анализы завершены. Оценка уровня: {estimated_grade}")
 
@@ -461,6 +475,7 @@ class VideoProcessor:
                 'additional_metrics': avg_additional_metrics,
                 'swot_analysis': swot_analysis,
                 'estimated_grade': estimated_grade,
+                'grade_score': _grade_score if '_grade_score' in locals() else None,
                 'overall_technique_score': overall_technique_score
             }
             
