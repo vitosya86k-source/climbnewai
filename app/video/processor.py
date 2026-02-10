@@ -512,6 +512,7 @@ class VideoProcessor:
                     'additional_metrics': avg_additional_metrics,
                     'swot_analysis': swot_analysis,
                     'estimated_grade': estimated_grade,
+                    'grade_score': _grade_score if '_grade_score' in locals() else None,
                     # Старые метрики для обратной совместимости
                     'metrics': avg_technique_metrics  # Используем новые метрики как основные
                 }
