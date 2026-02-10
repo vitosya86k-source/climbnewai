@@ -4,7 +4,6 @@
 Интеграция:
 - MediaPipe Pose для детекции скелета
 - BoulderVision метрики (Velocity Ratio, Cumulative Distance)
-- Roboflow для детекции зацепов (опционально)
 - 8 типов визуализации
 """
 
@@ -12,19 +11,15 @@ import cv2
 import mediapipe as mp
 import logging
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 import numpy as np
 import math
 
 from app.config import (
-    MEDIAPIPE_MODEL_COMPLEXITY, 
-    FRAME_SKIP, 
+    MEDIAPIPE_MODEL_COMPLEXITY,
+    FRAME_SKIP,
     TEMP_DIR,
-    ROBOFLOW_API_KEY,
-    ROBOFLOW_PROJECT,
-    ROBOFLOW_MODEL_VERSION,
-    BOULDERVISION_BUFFER_SIZE,
-    ENABLE_HOLD_DETECTION
+    BOULDERVISION_BUFFER_SIZE
 )
 from app.analysis import (
     FrameAnalyzer,
@@ -34,7 +29,7 @@ from app.analysis import (
     ClimberNineBoxModel
 )
 from app.analysis.csv_generator import analyze_technical_issues
-from app.bouldervision import BoulderVisionMetrics, HoldsDetector
+from app.bouldervision import BoulderVisionMetrics
 from .overlays import VideoOverlays
 
 logger = logging.getLogger(__name__)
@@ -56,8 +51,6 @@ class VideoProcessor:
     BoulderVision (3):
     - heatmap: тепловая карта позиций
     - trajectory: полная траектория движения
-    - holds: зацепы + скелет + связи
-    
     ВАЖНО: Все объекты с состоянием создаются ВНУТРИ process_video()
     для изоляции между запросами (защита от race condition)
     """
@@ -110,20 +103,6 @@ class VideoProcessor:
         additional_analyzer = AdditionalMetricsAnalyzer()
         swot_generator = SWOTGenerator()
         
-        # Детектор зацепов (опционально)
-        holds_detector: Optional[HoldsDetector] = None
-        if ENABLE_HOLD_DETECTION and ROBOFLOW_API_KEY and output_overlay == "holds":
-            try:
-                holds_detector = HoldsDetector(
-                    api_key=ROBOFLOW_API_KEY,
-                    project_name=ROBOFLOW_PROJECT,
-                    model_version=ROBOFLOW_MODEL_VERSION
-                )
-                logger.info("✅ HoldsDetector создан для этого запроса")
-            except Exception as e:
-                logger.warning(f"⚠️ Не удалось создать HoldsDetector: {e}")
-                holds_detector = None
-        
         cap = None
         out = None
         output_path = None
@@ -158,15 +137,9 @@ class VideoProcessor:
             frame_number = 0
             processed_count = 0
             
-            # Для детекции зацепов (кэшируем на первом кадре)
-            detected_holds: List = []
-            holds_detection_interval = 30  # Детектируем зацепы каждые N кадров
-            
             # Сброс состояния анализаторов (локальные объекты, но на всякий случай)
             bv_metrics.reset()
             tension_analyzer.reset()
-            if holds_detector:
-                holds_detector.reset()
             overlays.reset()
             
             # Обработка кадров
@@ -206,21 +179,6 @@ class VideoProcessor:
                         'cumulative_distance': bv_frame_metrics.get('cumulative_distance', 0.0),
                         'current_velocity': bv_frame_metrics.get('current_velocity', 0.0)
                     })
-                    
-                    # Детекция зацепов (если включено и это нужный overlay)
-                    if holds_detector and output_overlay == "holds":
-                        if frame_number % holds_detection_interval == 0:
-                            detected_holds = holds_detector.detect_holds(
-                                frame, frame_number
-                            )
-                        
-                        # Обновляем взаимодействия с зацепами
-                        if detected_holds:
-                            holds_detector.update_interactions(
-                                results.pose_landmarks,
-                                detected_holds,
-                                frame_number
-                            )
                     
                     # Проверка на падение
                     fall_info = fall_detector.check_fall(
@@ -275,9 +233,7 @@ class VideoProcessor:
                             frame,
                             results.pose_landmarks,
                             output_overlay,
-                            frame_data,
-                            holds_detector=holds_detector,
-                            holds=detected_holds if output_overlay == "holds" else None
+                            frame_data
                         )
                     else:
                         # Если landmarks нет, все равно обновляем историю с None
@@ -309,11 +265,6 @@ class VideoProcessor:
             
             # BoulderVision статистика
             bv_summary = bv_metrics.get_summary()
-            
-            # Статистика зацепов
-            holds_analysis = {}
-            if holds_detector:
-                holds_analysis = holds_detector.get_hold_analysis(fps)
             
             # ========== НОВЫЕ АЛГОРИТМИЧЕСКИЕ АНАЛИЗЫ ==========
 
@@ -505,9 +456,6 @@ class VideoProcessor:
                     'ascii_plot': nine_box_assessment.get('ascii_plot', '')
                 },
 
-                # Анализ зацепов
-                'holds_analysis': holds_analysis,
-                
                 # ========== НОВЫЕ МЕТРИКИ ТЕХНИКИ ==========
                 'technique_metrics': avg_technique_metrics,
                 'additional_metrics': avg_additional_metrics,
@@ -602,16 +550,10 @@ class VideoProcessor:
             'center': '📍 Центр масс - траектория движения',
             'metrics': '📊 Метрики - числовые показатели на видео',
 
-            # BoulderVision (6-8)
+            # BoulderVision (6-7)
             'heatmap': '🌡️ Тепловая карта - зоны концентрации',
             'trajectory': '📈 Траектория - полный путь движения',
         }
-
-        # Добавляем holds только если доступен ключ
-        if ENABLE_HOLD_DETECTION and ROBOFLOW_API_KEY:
-            overlays['holds'] = '🎯 Зацепы - детекция и связи с конечностями'
-        else:
-            overlays['holds'] = '🎯 Зацепы (требуется ROBOFLOW_API_KEY)'
 
         # Wow-Effect визуализации (9-12)
         overlays.update({

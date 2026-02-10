@@ -11,10 +11,7 @@ from telegram.ext import (
 )
 
 from app.reports import ReportGenerator
-from app.config import (
-    MAX_VIDEO_SIZE_MB,
-    USE_DATABASE
-)
+from app.config import MAX_VIDEO_SIZE_MB
 from app.application.queue_manager import VideoJob, enqueue_job
 from app.application.state import analysis_store
 from .keyboards import (
@@ -30,7 +27,6 @@ from .messages import (
     VIDEO_READY_MESSAGE,
     REPORT_SELECTION_MESSAGE,
     REPORT_READY_MESSAGE,
-    NO_VIDEOS_LEFT_MESSAGE,
     ERROR_MESSAGE
 )
 
@@ -91,17 +87,6 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         logger.info(f"📹 Обработка видео: file_id={video_file.file_id}, size={video_file.file_size}")
-        # Проверка лимита (БД отключена в MVP)
-        if USE_DATABASE:
-            with get_session() as session:
-                db_user = get_or_create_user(session, user.id, user.username, user.full_name)
-                
-                if not can_analyze_video(session, db_user.id):
-                    await update.message.reply_text(
-                        NO_VIDEOS_LEFT_MESSAGE.format(videos_count=db_user.videos_analyzed)
-                    )
-                    return
-        
         # Проверка размера
         file_size_mb = video_file.file_size / (1024 * 1024)
         if file_size_mb > MAX_VIDEO_SIZE_MB:

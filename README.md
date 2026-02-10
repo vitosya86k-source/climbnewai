@@ -22,13 +22,6 @@ Telegram-бот для анализа техники скалолазания с
 **BoulderVision:**
 - 🌡️ Heatmap - тепловая карта позиций
 - 📈 Trajectory - полная траектория движения
-- 🎯 Holds - детекция зацепов + связи
-
-### Детекция зацепов (Roboflow)
-- YOLO детекция зацепов на стене
-- Классификация цвета зацепов
-- Сопоставление рук/ног с зацепами
-- Анализ времени на каждом зацепе
 
 ## Установка
 
@@ -59,20 +52,9 @@ python run_bot.py
 TELEGRAM_BOT_TOKEN=...     # От @BotFather
 ```
 
-### Для детекции зацепов (опционально)
-```
-ROBOFLOW_API_KEY=...       # От roboflow.com
-ENABLE_HOLD_DETECTION=true
-```
-
 ### Параллельные задачи (очередь)
 ```
 MAX_CONCURRENT_JOBS=2      # Сколько видео обрабатываем параллельно
-```
-
-### Режим MVP (без базы данных)
-```
-USE_DATABASE=false
 ```
 
 ## Архитектура
@@ -80,9 +62,8 @@ USE_DATABASE=false
 ```
 telegram_bot_bouldervision_no_ai/
 ├── app/
-│   ├── bouldervision/          # 🆕 BoulderVision модули
-│   │   ├── metrics.py          # Velocity Ratio, Cumulative Distance
-│   │   └── holds_detector.py   # Roboflow интеграция
+│   ├── bouldervision/          # BoulderVision модули
+│   │   └── metrics.py          # Velocity Ratio, Cumulative Distance
 │   ├── analysis/               # Анализ кадров
 │   ├── bot/                    # Telegram handlers
 │   ├── reports/                # Генерация отчетов
@@ -122,7 +103,6 @@ telegram_bot_bouldervision_no_ai/
 ## Источники
 
 - [BoulderVision GitHub](https://github.com/reiffd7/BoulderVision)
-- [Roboflow Bouldering Blog](https://blog.roboflow.com/bouldering/)
 - [Stanford CS231N Paper](https://cs231n.stanford.edu/2024/papers/using-pose-estimation-to-analyze-rock-climbing-technique.pdf)
 
 ## Лицензия

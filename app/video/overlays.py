@@ -112,9 +112,7 @@ class VideoOverlays:
         frame: np.ndarray,
         landmarks,
         overlay_type: str,
-        frame_data: Dict[str, Any],
-        holds_detector=None,
-        holds: List = None
+        frame_data: Dict[str, Any]
     ) -> np.ndarray:
         """
         Применить визуализацию к кадру

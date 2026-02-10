@@ -11,11 +11,9 @@ import logging
 from telegram.ext import Application
 
 from app.config import TELEGRAM_BOT_TOKEN
-from app.database import init_db
 from app.bot import setup_handlers
 from app.utils import setup_logger
 from app.application.queue_manager import start_queue_workers
-from app.config import USE_DATABASE
 
 # Настройка логирования
 logger = setup_logger("climbai", logging.INFO)
@@ -28,16 +26,8 @@ async def post_init(application: Application) -> None:
     """Инициализация после создания приложения"""
     logger.info("🚀 Инициализация бота...")
     
-    # Инициализация базы данных
-    if USE_DATABASE:
-        try:
-            init_db()
-            logger.info("✅ База данных инициализирована")
-        except Exception as e:
-            logger.error(f"❌ Ошибка инициализации БД: {e}")
-            raise
-    else:
-        logger.info("ℹ️ База данных отключена (MVP)")
+    # MVP: без базы данных
+    logger.info("ℹ️ База данных отключена (MVP)")
 
     # Запуск воркеров очереди
     start_queue_workers(application)

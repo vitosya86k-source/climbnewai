@@ -22,28 +22,9 @@ BOLDERING_DIR.mkdir(parents=True, exist_ok=True)
 # Telegram
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
-# Roboflow API (для BoulderVision детекции зацепов)
-ROBOFLOW_API_KEY = os.getenv("ROBOFLOW_API_KEY")
-ROBOFLOW_PROJECT = os.getenv("ROBOFLOW_PROJECT", "climbing-route-1-hold-detection")
-ROBOFLOW_MODEL_VERSION = int(os.getenv("ROBOFLOW_MODEL_VERSION", "1"))
-
-# Масса спортсмена (кг) для расчёта нагрузок (если задана)
-MASS_KG = float(os.getenv("MASS_KG", "0"))  # 0 = не задан
-
 # BoulderVision настройки
 BOULDERVISION_BUFFER_SIZE = int(os.getenv("BOULDERVISION_BUFFER_SIZE", "60"))  # Кадров в буфере
-BOULDERVISION_HOLD_THRESHOLD = float(os.getenv("BOULDERVISION_HOLD_THRESHOLD", "0.1"))  # Порог сопоставления
-ENABLE_HOLD_DETECTION = os.getenv("ENABLE_HOLD_DETECTION", "false").lower() == "true"
 
-# Database
-DEV_MODE = os.getenv("DEV_MODE", "True").lower() == "true"
-if DEV_MODE:
-    DATABASE_URL = os.getenv("DEV_DATABASE_URL", "sqlite:///./climbai.db")
-else:
-    DATABASE_URL = os.getenv("DATABASE_URL")
-
-# Limits
-FREE_VIDEO_LIMIT = int(os.getenv("FREE_VIDEO_LIMIT", "3"))
 MAX_VIDEO_SIZE_MB = int(os.getenv("MAX_VIDEO_SIZE_MB", "100"))
 MAX_VIDEO_DURATION_SEC = int(os.getenv("MAX_VIDEO_DURATION_SEC", "120"))
 # Таймаут загрузки видео/фото в Telegram (сек). Библиотека по умолчанию даёт 20 с — мало для больших файлов.
@@ -55,9 +36,6 @@ FRAME_SKIP = int(os.getenv("FRAME_SKIP", "1"))
 
 # Concurrency
 MAX_CONCURRENT_JOBS = int(os.getenv("MAX_CONCURRENT_JOBS", "2"))
-
-# MVP: без базы данных
-USE_DATABASE = os.getenv("USE_DATABASE", "false").lower() == "true"
 
 # Railway
 PORT = int(os.getenv("PORT", "8080"))
