@@ -166,9 +166,14 @@ async def _process_job(application, job: VideoJob, worker_id: int) -> None:
 
             last_sent_progress = -1
             last_status_update_monotonic = 0.0
+            progress_state = {
+                "progress": 0,
+                "stage": "Инициализация анализа...",
+            }
 
             def progress_callback(progress, stage):
                 nonlocal last_sent_progress, last_status_update_monotonic
+                progress_state["stage"] = stage or progress_state["stage"]
                 if progress is None:
                     try:
                         logger.info(f"Worker {worker_id} stage: {stage}")
@@ -188,6 +193,7 @@ async def _process_job(application, job: VideoJob, worker_id: int) -> None:
                     return
 
                 progress_int = max(0, min(100, int(progress)))
+                progress_state["progress"] = progress_int
                 now = time.monotonic()
                 should_update = (
                     progress_int <= 20
@@ -218,13 +224,37 @@ async def _process_job(application, job: VideoJob, worker_id: int) -> None:
                     except Exception:
                         pass
 
+            async def _heartbeat() -> None:
+                """Периодическое сообщение, чтобы пользователь не видел 'тишину'."""
+                while True:
+                    await asyncio.sleep(15)
+                    try:
+                        p = int(progress_state["progress"])
+                        stage = str(progress_state["stage"])
+                        await _edit_status(
+                            "🎬 Обрабатываю видео...\n"
+                            f"{'█' * (p // 10)}{'░' * (10 - p // 10)} {p}%\n\n"
+                            f"{stage}\n\n"
+                            "⏳ Работаю, это может занять 1–3 минуты."
+                        )
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        pass
+
+            heartbeat_task = asyncio.create_task(_heartbeat())
+
             # Обработка видео в фоне
-            result = await asyncio.to_thread(
-                processor.process_video,
-                Path(video_path),
-                job.overlay_type,
-                progress_callback
-            )
+            try:
+                result = await asyncio.to_thread(
+                    processor.process_video,
+                    Path(video_path),
+                    job.overlay_type,
+                    progress_callback
+                )
+            finally:
+                heartbeat_task.cancel()
+                await asyncio.gather(heartbeat_task, return_exceptions=True)
 
             # Уведление о готовности
             await _edit_status(
