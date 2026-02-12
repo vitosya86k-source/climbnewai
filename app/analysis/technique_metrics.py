@@ -23,6 +23,8 @@ logger = logging.getLogger(__name__)
 
 class TechniqueMetricsAnalyzer:
     """Анализатор 7 базовых метрик техники"""
+    ROTATION_THRESHOLD_DEG = 15.0
+    POSITION_THRESHOLD = 0.02
     
     def __init__(self, history_size: int = 90):
         """
@@ -35,6 +37,10 @@ class TechniqueMetricsAnalyzer:
         self.foot_positions_history: Dict[str, List[Tuple[float, float, int]]] = {
             'left': [],   # [(x, y, frame_number), ...]
             'right': []   # [(x, y, frame_number), ...]
+        }
+        self.foot_angle_history: Dict[str, List[float]] = {
+            'left': [],
+            'right': []
         }
         
         self.hand_positions_history: Dict[str, List[Tuple[float, float, int]]] = {
@@ -63,6 +69,7 @@ class TechniqueMetricsAnalyzer:
     def reset(self):
         """Сброс всех историй"""
         self.foot_positions_history = {'left': [], 'right': []}
+        self.foot_angle_history = {'left': [], 'right': []}
         self.hand_positions_history = {'left': [], 'right': []}
         self.movement_intervals = []
         self.last_movement_time = None
@@ -138,13 +145,19 @@ class TechniqueMetricsAnalyzer:
         
         if left_ankle and left_ankle.visibility > 0.5:
             self.foot_positions_history['left'].append((left_ankle.x, left_ankle.y, frame_number))
+            self.foot_angle_history['left'].append(self._calc_foot_angle(landmarks.landmark, 'left'))
             if len(self.foot_positions_history['left']) > self.history_size:
                 self.foot_positions_history['left'].pop(0)
+            if len(self.foot_angle_history['left']) > self.history_size:
+                self.foot_angle_history['left'].pop(0)
         
         if right_ankle and right_ankle.visibility > 0.5:
             self.foot_positions_history['right'].append((right_ankle.x, right_ankle.y, frame_number))
+            self.foot_angle_history['right'].append(self._calc_foot_angle(landmarks.landmark, 'right'))
             if len(self.foot_positions_history['right']) > self.history_size:
                 self.foot_positions_history['right'].pop(0)
+            if len(self.foot_angle_history['right']) > self.history_size:
+                self.foot_angle_history['right'].pop(0)
         
         # Руки (запястья)
         left_wrist = landmarks.landmark[15] if len(landmarks.landmark) > 15 else None
@@ -266,64 +279,32 @@ class TechniqueMetricsAnalyzer:
         """
         if len(self.foot_positions_history['left']) < 5 and len(self.foot_positions_history['right']) < 5:
             return 50.0  # Недостаточно данных
-        
-        threshold_pixels = 0.02  # 2% от размера кадра (эквивалент ~20 пикселей)
-        frame_window = 15  # Окно для определения "одной точки"
-        
+
         total_repositions = 0
         total_stable_positions = 0
-        
+        total_pivots = 0
+
         for side in ['left', 'right']:
-            positions = self.foot_positions_history[side]
-            if len(positions) < frame_window:
+            positions = [(p[0], p[1]) for p in self.foot_positions_history[side]]
+            angles = self.foot_angle_history[side]
+            if len(positions) < 5 or len(angles) != len(positions):
                 continue
-            
-            # Группируем позиции по кластерам (близкие позиции = одна точка опоры)
-            clusters = []
-            current_cluster = [positions[0]]
-            
-            for i in range(1, len(positions)):
-                prev_pos = current_cluster[-1]
-                curr_pos = positions[i]
-                
-                # Расстояние между позициями
-                dist = math.sqrt((curr_pos[0] - prev_pos[0])**2 + (curr_pos[1] - prev_pos[1])**2)
-                
-                if dist < threshold_pixels:
-                    # Та же точка опоры
-                    current_cluster.append(curr_pos)
-                else:
-                    # Новая точка опоры
-                    if len(current_cluster) >= frame_window:
-                        clusters.append(current_cluster)
-                    current_cluster = [curr_pos]
-            
-            if len(current_cluster) >= frame_window:
-                clusters.append(current_cluster)
-            
-            # Считаем перестановки в каждом кластере
-            for cluster in clusters:
-                if len(cluster) < 2:
-                    continue
-                
-                movements = 0
-                for i in range(1, len(cluster)):
-                    dist = math.sqrt(
-                        (cluster[i][0] - cluster[i-1][0])**2 + 
-                        (cluster[i][1] - cluster[i-1][1])**2
-                    )
-                    if dist > threshold_pixels:
-                        movements += 1
-                
-                if movements > 0:
-                    total_repositions += movements
-                    total_stable_positions += 1
-        
+
+            repositions, pivots, stable = self._count_repositions_with_rotation_filter(
+                foot_positions=positions,
+                foot_angles=angles,
+                threshold=self.POSITION_THRESHOLD,
+            )
+            total_repositions += repositions
+            total_pivots += pivots
+            total_stable_positions += stable
+            self._log_quiet_feet_debug(side, repositions, pivots, stable)
+
         if total_stable_positions == 0:
             return 50.0
-        
+
         avg_repositions = total_repositions / total_stable_positions
-        
+
         # Шкала оценки
         if avg_repositions < 1.5:
             score = 90 + (1.5 - avg_repositions) * 6.67  # 90-100%
@@ -336,6 +317,86 @@ class TechniqueMetricsAnalyzer:
         
         # Ритм не должен падать до 0 при шуме
         return max(20.0, min(100.0, score))
+
+    def _calc_foot_angle(self, landmarks, foot_side: str) -> float:
+        """Угол стопы по вектору пятка->носок."""
+        if foot_side == 'left':
+            heel_idx, toe_idx = 29, 31
+        else:
+            heel_idx, toe_idx = 30, 32
+
+        if len(landmarks) <= max(heel_idx, toe_idx):
+            return 0.0
+
+        heel = landmarks[heel_idx]
+        toe = landmarks[toe_idx]
+        if heel.visibility < 0.5 or toe.visibility < 0.5:
+            return 0.0
+
+        dx = toe.x - heel.x
+        dy = toe.y - heel.y
+        angle = math.degrees(math.atan2(dy, dx))
+        return angle % 360
+
+    def _is_pivot(self, prev_angle: float, curr_angle: float) -> bool:
+        """Пивот: существенный поворот стопы в той же зоне опоры."""
+        angle_diff = abs(curr_angle - prev_angle)
+        if angle_diff > 180:
+            angle_diff = 360 - angle_diff
+        return angle_diff >= self.ROTATION_THRESHOLD_DEG
+
+    def _count_repositions_with_rotation_filter(
+        self,
+        foot_positions: List[Tuple[float, float]],
+        foot_angles: List[float],
+        threshold: float,
+    ) -> Tuple[int, int, int]:
+        """
+        Считает перестановки с фильтром пивотов.
+        Возвращает: (repositions, pivots, stable_positions)
+        """
+        clusters: List[Dict[str, Any]] = []
+        total_repositions = 0
+        total_pivots = 0
+        total_stable = 0
+
+        for pos, angle in zip(foot_positions, foot_angles):
+            matched_cluster = None
+
+            for cluster in clusters:
+                cx, cy = cluster['center']
+                dist = math.sqrt((pos[0] - cx) ** 2 + (pos[1] - cy) ** 2)
+                if dist < threshold:
+                    matched_cluster = cluster
+                    break
+
+            if matched_cluster is None:
+                clusters.append({
+                    'center': pos,
+                    'last_angle': angle,
+                    'count': 1,
+                })
+                total_stable += 1
+                continue
+
+            if self._is_pivot(matched_cluster['last_angle'], angle):
+                total_pivots += 1
+            else:
+                total_repositions += 1
+
+            matched_cluster['last_angle'] = angle
+            matched_cluster['count'] += 1
+
+        return total_repositions, total_pivots, total_stable
+
+    def _log_quiet_feet_debug(self, side: str, repositions: int, pivots: int, stable: int) -> None:
+        total_events = repositions + pivots
+        pivot_pct = (pivots / total_events * 100) if total_events > 0 else 0
+        logger.info(
+            f"QuietFeet [{side}]: repositions={repositions}, pivots={pivots} "
+            f"({pivot_pct:.0f}% filtered), stable_positions={stable}, "
+            f"avg_repositions={repositions / max(stable, 1):.2f}"
+        )
     
     def _calculate_hip_position(self, landmarks) -> float:
         """
