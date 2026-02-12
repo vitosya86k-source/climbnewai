@@ -9,6 +9,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+import cv2
 from telegram.error import NetworkError
 
 from app.config import (
