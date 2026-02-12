@@ -302,6 +302,7 @@ def _try_compress_video_for_telegram(input_path: Path, max_mb: int) -> Optional[
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=20,
             )
             duration = float(probe.stdout.strip()) if probe.stdout.strip() else 60.0
             duration = max(1.0, duration)
@@ -334,6 +335,7 @@ def _try_compress_video_for_telegram(input_path: Path, max_mb: int) -> Optional[
                 ],
                 capture_output=True,
                 check=False,
+                timeout=180,
             )
             if _file_size_mb(output_path) <= float(max_mb):
                 return output_path
@@ -363,11 +365,15 @@ def _try_compress_video_for_telegram(input_path: Path, max_mb: int) -> Optional[
                 ],
                 capture_output=True,
                 check=False,
+                timeout=180,
             )
             _safe_unlink(output_path)
             if _file_size_mb(output_small) <= float(max_mb):
                 return output_small
             _safe_unlink(output_small)
+        except subprocess.TimeoutExpired:
+            logger.warning("ffmpeg compression timeout reached; fallback to OpenCV compression")
+            _safe_unlink(output_path)
         except Exception:
             _safe_unlink(output_path)
 
