@@ -14,6 +14,49 @@ import re
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_THRESHOLDS = {
+    'strengths': 75,
+    'weaknesses': 55,
+}
+
+ADVANCED_THRESHOLDS = {
+    'quiet_feet': {'weaknesses': 40, 'strengths': 80},
+    'rhythm': {'weaknesses': 45},
+    'route_reading': {'weaknesses': 40},
+}
+
+ADVANCED_TEXT_OVERRIDES = {
+    'quiet_feet': {
+        'medium': {
+            'weakness': (
+                "Работа ног {score}% — есть пространство для повышения точности постановки. "
+                "На вашем уровне это тонкая настройка."
+            ),
+        },
+        'poor': {
+            'weakness': (
+                "Точность постановки ног {score}% — ниже ожидаемого для вашего уровня. "
+                "Стоит добавить осознанность в работе стоп."
+            ),
+        },
+    },
+    'rhythm': {
+        'medium': {
+            'weakness': (
+                "Ритм {score}% — на сложных участках темп неравномерный. "
+                "Для вашей категории это часто норма, но выровненный ритм даст экономию."
+            ),
+        },
+    },
+}
+
+ADVANCED_OPPORTUNITY_OVERRIDES = {
+    'quiet_feet': (
+        "Повышение точности постановки ног — тонкий резерв экономии. "
+        "На вашем уровне это добавит запас на длинных и силовых маршрутах."
+    ),
+}
+
 # Пытаемся импортировать новый парсер
 try:
     from app.analysis.template_parser import TemplateParser
@@ -267,13 +310,15 @@ class SWOTGenerator:
             tension_data=tension_data,
             raw_data=raw_data or {}
         )
+        estimated_grade = str(raw_data.get('estimated_grade') or raw_data.get('grade') or "")
         
         # === STRENGTHS (метрики >= 75%) ===
         all_metrics = {**technique_metrics, **additional_metrics}
         
         for metric_name, score in all_metrics.items():
-            if score >= 75:
-                text = self._get_text_for_metric(metric_name, score, 'strength', raw_data)
+            strength_threshold = self._get_threshold(metric_name, 'strengths', estimated_grade)
+            if score >= strength_threshold:
+                text = self._get_text_for_metric(metric_name, score, 'strength', raw_data, estimated_grade)
                 if text:
                     swot['strengths'].append({
                         'metric': metric_name,
@@ -283,8 +328,9 @@ class SWOTGenerator:
         
         # === WEAKNESSES (метрики < 55%) ===
         for metric_name, score in all_metrics.items():
-            if score < 55:
-                text = self._get_text_for_metric(metric_name, score, 'weakness', raw_data)
+            weakness_threshold = self._get_threshold(metric_name, 'weaknesses', estimated_grade)
+            if score < weakness_threshold:
+                text = self._get_text_for_metric(metric_name, score, 'weakness', raw_data, estimated_grade)
                 if text:
                     swot['weaknesses'].append({
                         'metric': metric_name,
@@ -295,7 +341,9 @@ class SWOTGenerator:
         # === OPPORTUNITIES (на основе слабостей) ===
         for weakness in swot['weaknesses']:
             metric_name = weakness['metric']
-            opportunity = self._get_opportunity_for_weakness(metric_name, weakness, all_metrics, raw_data)
+            opportunity = self._get_opportunity_for_weakness(
+                metric_name, weakness, all_metrics, raw_data, estimated_grade
+            )
             if opportunity:
                 swot['opportunities'].append(opportunity)
         
@@ -306,7 +354,9 @@ class SWOTGenerator:
         # Если opportunities пусто, пытаемся найти из всех слабых метрик
         if not swot['opportunities']:
             for weakness in swot['weaknesses']:
-                opp = self._get_opportunity_for_weakness(weakness['metric'], weakness, all_metrics, raw_data)
+                opp = self._get_opportunity_for_weakness(
+                    weakness['metric'], weakness, all_metrics, raw_data, estimated_grade
+                )
                 if opp:
                     swot['opportunities'].append(opp)
                     if len(swot['opportunities']) >= 3:
@@ -353,7 +403,8 @@ class SWOTGenerator:
         metric_name: str,
         score: float,
         text_type: str,
-        raw_data: Dict[str, Any]
+        raw_data: Dict[str, Any],
+        estimated_grade: str = "",
     ) -> Optional[str]:
         """Получение текста для метрики на основе балла из шаблонов TEXT_TEMPLATES.md"""
         # Проверяем наличие шаблона в загруженных шаблонах
@@ -428,6 +479,12 @@ class SWOTGenerator:
         
         if not isinstance(template, str):
             return None
+
+        if self._is_advanced_grade(estimated_grade):
+            metric_overrides = ADVANCED_TEXT_OVERRIDES.get(metric_name, {})
+            level_overrides = metric_overrides.get(level, {})
+            if text_type in level_overrides:
+                template = level_overrides[text_type]
         
         # Подставляем значения
         try:
@@ -459,7 +516,8 @@ class SWOTGenerator:
         metric_name: str,
         weakness: Dict[str, Any],
         all_metrics: Dict[str, float],
-        raw_data: Dict[str, Any]
+        raw_data: Dict[str, Any],
+        estimated_grade: str = "",
     ) -> Optional[Dict[str, Any]]:
         """Получение возможности для слабости из шаблонов TEXT_TEMPLATES.md"""
         # Проверяем разные варианты ключей
@@ -477,6 +535,7 @@ class SWOTGenerator:
         
         template = opp_templates[metric_name]
         if isinstance(template, str):
+            template = self._get_opportunity_text(metric_name, estimated_grade, template)
             try:
                 text = template.format(**raw_data)
                 return {'text': text, 'metric': metric_name}
@@ -543,8 +602,9 @@ class SWOTGenerator:
             values = {'score': int(weakness['score'])}
         
         try:
+            text_template = self._get_opportunity_text(metric_name, estimated_grade, template['text'])
             format_data = {**raw_data, **values}
-            text = template['text'].format(**format_data)
+            text = text_template.format(**format_data)
             return {'text': text, 'metric': metric_name}
         except Exception as e:
             logger.warning(f"Ошибка форматирования opportunity для {metric_name}: {e}, values: {values}")
@@ -683,6 +743,7 @@ class SWOTGenerator:
         # Оценка уровня
         grade = self.estimate_grade(technique_metrics)
         data.setdefault('grade', grade.replace('—', '-'))
+        data.setdefault('estimated_grade', grade)
 
         duration = float(data.get('duration', 60))
 
@@ -748,6 +809,26 @@ class SWOTGenerator:
         data.setdefault('potential_grade', grade_steps[potential_idx])
 
         return data
+
+    def _is_advanced_grade(self, estimated_grade: str) -> bool:
+        if not estimated_grade:
+            return False
+        grade_lower = estimated_grade.strip().lower()
+        if any(ch in grade_lower for ch in ["7", "8"]):
+            return True
+        return False
+
+    def _get_threshold(self, metric_name: str, block: str, estimated_grade: str) -> int:
+        if self._is_advanced_grade(estimated_grade):
+            metric_thresholds = ADVANCED_THRESHOLDS.get(metric_name, {})
+            if block in metric_thresholds:
+                return metric_thresholds[block]
+        return DEFAULT_THRESHOLDS.get(block, 55)
+
+    def _get_opportunity_text(self, metric_name: str, estimated_grade: str, default_text: str) -> str:
+        if self._is_advanced_grade(estimated_grade):
+            return ADVANCED_OPPORTUNITY_OVERRIDES.get(metric_name, default_text)
+        return default_text
 
     def _safe_eval_arith(self, expr: str, variables: Dict[str, Any]) -> float:
         """Безопасное вычисление простых арифметических выражений с переменными."""
