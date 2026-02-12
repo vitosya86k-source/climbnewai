@@ -29,6 +29,9 @@ MAX_VIDEO_SIZE_MB = int(os.getenv("MAX_VIDEO_SIZE_MB", "100"))
 MAX_VIDEO_DURATION_SEC = int(os.getenv("MAX_VIDEO_DURATION_SEC", "120"))
 # Таймаут загрузки видео/фото в Telegram (сек). Библиотека по умолчанию даёт 20 с — мало для больших файлов.
 MEDIA_UPLOAD_TIMEOUT = float(os.getenv("MEDIA_UPLOAD_TIMEOUT", "1200"))
+# Практический лимит для отправки видео ботом через Bot API.
+# Если результат тяжелее, код попробует сжать видео перед отправкой.
+TELEGRAM_MAX_SEND_VIDEO_MB = int(os.getenv("TELEGRAM_MAX_SEND_VIDEO_MB", "49"))
 
 # Video Processing
 MEDIAPIPE_MODEL_COMPLEXITY = int(os.getenv("MEDIAPIPE_MODEL_COMPLEXITY", "2"))
@@ -36,6 +39,7 @@ FRAME_SKIP = int(os.getenv("FRAME_SKIP", "1"))
 
 # Concurrency
 MAX_CONCURRENT_JOBS = int(os.getenv("MAX_CONCURRENT_JOBS", "2"))
+PROCESSING_TIMEOUT_SEC = int(os.getenv("PROCESSING_TIMEOUT_SEC", "300"))
 
 # Railway
 PORT = int(os.getenv("PORT", "8080"))
