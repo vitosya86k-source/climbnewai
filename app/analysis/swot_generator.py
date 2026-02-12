@@ -748,14 +748,19 @@ class SWOTGenerator:
         duration = float(data.get('duration', 60))
 
         # Quiet Feet: перестановки и норма
-        repositions = max(1, int(round(1 + (100 - quiet_feet) / 10)))
-        norm = max(1, int(round(1 + (100 - quiet_feet) / 25)))
-        data.setdefault('repositions', repositions)
+        avg_repositions = max(1.0, round(1 + (100 - quiet_feet) / 10, 1))
+        norm = 1.5
+        hold_count = int(data.get('hold_count', max(1, int(round(duration / 2)))))
+        saved_per_hold = max(0.0, avg_repositions - norm)
+        saved_total = int(round(saved_per_hold * hold_count))
+
+        data.setdefault('repositions', avg_repositions)
         data.setdefault('norm', norm)
-        data.setdefault('times', round(repositions / max(norm, 1), 1))
-        data.setdefault('current_repositions', repositions)
-        data.setdefault('target_repositions', max(1, repositions - 1))
-        data.setdefault('hold_count', max(1, int(round(duration / 2))))
+        data.setdefault('times', round(avg_repositions / max(norm, 0.1), 1))
+        data.setdefault('current_repositions', avg_repositions)
+        data.setdefault('target_repositions', max(1.0, round(avg_repositions - 1, 1)))
+        data.setdefault('hold_count', hold_count)
+        data.setdefault('saved', saved_total)
 
         # Hip Position: угол и перегрузка рук
         angle = int(round(max(5, (100 - hip_position) * 0.6 + 5)))

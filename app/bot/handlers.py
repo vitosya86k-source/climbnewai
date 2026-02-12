@@ -1,7 +1,7 @@
 """Обработчики команд Telegram бота"""
 
 import logging
-from telegram import Update
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     ContextTypes,
     CommandHandler,
@@ -16,15 +16,15 @@ from app.application.queue_manager import VideoJob, enqueue_job
 from app.application.state import analysis_store
 from .keyboards import (
     get_main_keyboard,
-    get_overlay_selection_keyboard,
     get_report_format_keyboard,
-    get_next_actions_keyboard
+    get_next_actions_keyboard,
+    get_theory_keyboard,
 )
 from .messages import (
     WELCOME_MESSAGE,
     HELP_MESSAGE,
+    ABOUT_MESSAGE,
     PRICING_MESSAGE,
-    VIDEO_READY_MESSAGE,
     REPORT_SELECTION_MESSAGE,
     REPORT_READY_MESSAGE,
     ERROR_MESSAGE
@@ -33,31 +33,142 @@ from .messages import (
 logger = logging.getLogger(__name__)
 
 # Очередь обрабатывается воркерами
+SEEN_USERS: set[int] = set()
+
+THEORY_TEXTS = {
+    "theory_qf": (
+        "🦶 <b>QF — Спокойные ноги (Quiet Feet)</b>\n\n"
+        "<b>Что измеряет:</b> Сколько раз вы переставляете ногу на одной и той же зацепке.\n\n"
+        "<b>Почему важно:</b> Каждая лишняя перестановка тратит энергию.\n\n"
+        "<b>Как улучшить:</b>\n"
+        "— Смотрите на зацепку до постановки ноги\n"
+        "— Лезьте «беззвучно»\n"
+        "— Тренируйте простой маршрут с фокусом на точности ног"
+    ),
+    "theory_hp": (
+        "🦴 <b>HP — Положение таза</b>\n\n"
+        "<b>Что измеряет:</b> Насколько близко таз к стене.\n\n"
+        "<b>Почему важно:</b> Близкий таз разгружает руки и переносит вес на ноги.\n\n"
+        "<b>Как улучшить:</b>\n"
+        "— Прижимайте таз к стене\n"
+        "— Разворачивайте бедро внутрь на движениях\n"
+        "— Следите, чтобы не «висеть» на руках"
+    ),
+    "theory_dm": (
+        "↗️ <b>DM — Диагональная координация</b>\n\n"
+        "<b>Что измеряет:</b> Использование диагоналей: правая рука + левая нога и наоборот.\n\n"
+        "<b>Почему важно:</b> Диагональ даёт устойчивость и меньше раскачки.\n\n"
+        "<b>Как улучшить:</b>\n"
+        "— Осознанно чередуйте диагонали\n"
+        "— Замедляйтесь на простых трассах и контролируйте связки конечностей"
+    ),
+    "theory_rr": (
+        "👁️ <b>RR — Считывание маршрута</b>\n\n"
+        "<b>Что измеряет:</b> Планирование и паузы перед ключевыми движениями.\n\n"
+        "<b>Почему важно:</b> Без плана растёт хаос и перерасход сил.\n\n"
+        "<b>Как улучшить:</b>\n"
+        "— Перед стартом прочитайте трассу 30–60 сек\n"
+        "— Отмечайте точки отдыха и ключевые перехваты"
+    ),
+    "theory_rt": (
+        "🎵 <b>RT — Равномерность темпа</b>\n\n"
+        "<b>Что измеряет:</b> Стабильность ритма движений.\n\n"
+        "<b>Почему важно:</b> Ровный ритм = лучше контроль и экономия энергии.\n\n"
+        "<b>Как улучшить:</b>\n"
+        "— Лезьте с счётом или под ритм\n"
+        "— Избегайте серии резких судорожных движений"
+    ),
+    "theory_dc": (
+        "💥 <b>DC — Контроль после бросков</b>\n\n"
+        "<b>Что измеряет:</b> Точность и стабилизацию после динамических движений.\n\n"
+        "<b>Почему важно:</b> На сложных трассах без контроля динамики много срывов.\n\n"
+        "<b>Как улучшить:</b>\n"
+        "— Тренируйте «поймал и замер»\n"
+        "— После броска фиксируйте корпус 1 сек"
+    ),
+    "theory_gr": (
+        "🤲 <b>GR — Плавность перехватов</b>\n\n"
+        "<b>Что измеряет:</b> Насколько мягко отпускаете и берёте зацепки.\n\n"
+        "<b>Почему важно:</b> Резкие перехваты перегружают пальцы и плечи.\n\n"
+        "<b>Как улучшить:</b>\n"
+        "— Делайте мягкий хват\n"
+        "— Тренируйте траверс с фокусом на плавности"
+    ),
+    "theory_grade": (
+        "🎯 <b>Как считается уровень</b>\n\n"
+        "Уровень рассчитывается отдельно от общего балла техники:\n"
+        "— 7 базовых метрик с весами\n"
+        "— компенсация шума трекинга\n"
+        "— бонус за сложность движений (динамика, плотность перехватов)\n\n"
+        "Итог: уровень может быть выше/ниже общего балла — это нормально."
+    ),
+    "theory_scores": (
+        "📊 <b>Что значат баллы</b>\n\n"
+        "<b>Общий балл</b> — качество техники по 7 метрикам.\n"
+        "<b>Уровень</b> — оценка сложности пролаза по отдельному алгоритму.\n\n"
+        "Поэтому общий балл и уровень не обязаны совпадать."
+    ),
+}
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик /start"""
     logger.info(f"📥 Получена команда /start от пользователя {update.effective_user.id}")
-    user = update.effective_user
-    
+    if update.effective_user:
+        SEEN_USERS.add(update.effective_user.id)
+    await _send_welcome(update)
+
+
+async def _send_welcome(update: Update) -> None:
+    if not update.message:
+        return
     try:
-        # MVP: без БД, просто отправляем приветствие
-        welcome_text = WELCOME_MESSAGE
-        await update.message.reply_text(
-            welcome_text,
-            reply_markup=get_main_keyboard()
-        )
+        await update.message.reply_text(WELCOME_MESSAGE, reply_markup=get_main_keyboard())
     except Exception as e:
-        logger.error(f"❌ Ошибка в start_command: {e}", exc_info=True)
-        try:
-            await update.message.reply_text(ERROR_MESSAGE.format(error=str(e)))
-        except Exception as e2:
-            logger.error(f"❌ Не удалось отправить сообщение об ошибке: {e2}")
+        logger.error(f"❌ Ошибка отправки приветствия: {e}", exc_info=True)
+
+
+async def _ensure_welcomed(update: Update) -> None:
+    user = update.effective_user
+    if not user or user.id in SEEN_USERS:
+        return
+    SEEN_USERS.add(user.id)
+    await _send_welcome(update)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик /help и кнопки Помощь"""
-    await update.message.reply_text(HELP_MESSAGE)
+    await _ensure_welcomed(update)
+    await update.message.reply_text(HELP_MESSAGE, parse_mode='HTML', reply_markup=get_main_keyboard())
+
+
+async def theory_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Кнопка/команда теории."""
+    await _ensure_welcomed(update)
+    await update.message.reply_text(
+        "📖 <b>Теория метрик</b>\n\n"
+        "Выберите метрику — что измеряет, почему важна и как улучшить.\n\n"
+        "<i>Методология: Eric J. Hörst «Training for Climbing»</i>",
+        parse_mode='HTML',
+        reply_markup=get_theory_keyboard(),
+    )
+
+
+async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Кнопка/команда о боте."""
+    await _ensure_welcomed(update)
+    await update.message.reply_text(ABOUT_MESSAGE, parse_mode='HTML', reply_markup=get_main_keyboard())
+
+
+async def send_video_prompt_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Подсказка как отправить видео."""
+    await _ensure_welcomed(update)
+    await update.message.reply_text(
+        "📎 Нажмите скрепку внизу и выберите видео из галереи.\n\n"
+        "Формат: MP4, MOV или AVI\n"
+        "До 2 минут, до 100 МБ.",
+        reply_markup=get_main_keyboard(),
+    )
 
 
 async def pricing_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -81,9 +192,16 @@ async def progress_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик загрузки видео"""
+    await _ensure_welcomed(update)
     logger.info(f"📹 Получено видео от пользователя {update.effective_user.id}")
     user = update.effective_user
-    video_file = update.message.video
+    message = update.message
+    video_file = message.video or message.video_note
+    if not video_file and message.document and message.document.mime_type and message.document.mime_type.startswith("video/"):
+        video_file = message.document
+    if not video_file:
+        await message.reply_text("Не удалось распознать видеофайл.", reply_markup=get_main_keyboard())
+        return
     
     try:
         logger.info(f"📹 Обработка видео: file_id={video_file.file_id}, size={video_file.file_size}")
@@ -103,7 +221,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         position = await enqueue_job(
             VideoJob(
-                chat_id=update.message.chat_id,
+                chat_id=message.chat_id,
                 user_id=user.id,
                 file_id=video_file.file_id,
                 file_unique_id=video_file.file_unique_id,
@@ -116,6 +234,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await status_msg.edit_text(
                 f"⏳ Сейчас много запросов.\n"
                 f"Ваше место в очереди: {position}\n\n"
+                f"Примерное ожидание: ~{(position - 1) * 2} мин.\n"
                 "Как только очередь дойдёт до вас — начну обработку."
             )
         else:
@@ -159,6 +278,49 @@ async def handle_overlay_selection(update: Update, context: ContextTypes.DEFAULT
     await query.edit_message_text(
         "🎯 Сейчас доступен только полный анализ.\n\n"
         "Отправьте видео для обработки."
+    )
+
+
+async def handle_theory_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик инлайн-кнопок теории."""
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
+
+    text = THEORY_TEXTS.get(query.data, "Раздел в разработке.")
+    back_keyboard = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("⬅️ К списку", callback_data="theory_back")]]
+    )
+    await query.edit_message_text(
+        text=text,
+        parse_mode='HTML',
+        reply_markup=back_keyboard,
+    )
+
+
+async def handle_theory_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Возврат к списку теории."""
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
+    await query.edit_message_text(
+        "📖 <b>Теория метрик</b>\n\nВыберите метрику:",
+        parse_mode='HTML',
+        reply_markup=get_theory_keyboard(),
+    )
+
+
+async def handle_text_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Любой нераспознанный текст."""
+    await _ensure_welcomed(update)
+    if not update.message:
+        return
+    await update.message.reply_text(
+        "📎 Нажмите «📹 Отправить видео» или отправьте видео через скрепку.\n"
+        "Также доступна кнопка «📖 Теория».",
+        reply_markup=get_main_keyboard(),
     )
 
 
@@ -331,17 +493,41 @@ def setup_handlers(application):
     application.add_handler(CommandHandler("start", start_command))
     logger.info("✅ Обработчик /start зарегистрирован")
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("theory", theory_command))
+    application.add_handler(CommandHandler("about", about_command))
     
-    # Кнопки главного меню (только помощь для MVP)
+    # Кнопки главного меню
+    application.add_handler(MessageHandler(
+        filters.Text(["📹 Отправить видео"]),
+        send_video_prompt_command
+    ))
     application.add_handler(MessageHandler(
         filters.Text(["❓ Помощь", "Помощь", "/help"]),
         help_command
     ))
+    application.add_handler(MessageHandler(
+        filters.Text(["📖 Теория"]),
+        theory_command
+    ))
+    application.add_handler(MessageHandler(
+        filters.Text(["ℹ️ О боте"]),
+        about_command
+    ))
     
-    # Видео
+    # Видео (video, video_note, документ-видео)
     application.add_handler(MessageHandler(filters.VIDEO, handle_video))
+    application.add_handler(MessageHandler(filters.VIDEO_NOTE, handle_video))
+    application.add_handler(MessageHandler(filters.Document.VIDEO, handle_video))
     
     # Callback queries
+    application.add_handler(CallbackQueryHandler(
+        handle_theory_back,
+        pattern="^theory_back$"
+    ))
+    application.add_handler(CallbackQueryHandler(
+        handle_theory_callback,
+        pattern="^theory_"
+    ))
     application.add_handler(CallbackQueryHandler(
         handle_overlay_selection,
         pattern="^overlay_"
@@ -353,6 +539,12 @@ def setup_handlers(application):
     application.add_handler(CallbackQueryHandler(
         handle_next_actions,
         pattern="^action_"
+    ))
+
+    # Фолбэк для любого текста
+    application.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND,
+        handle_text_fallback
     ))
     
     logger.info("Все обработчики настроены")

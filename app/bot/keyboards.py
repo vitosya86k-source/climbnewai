@@ -4,11 +4,12 @@ from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardBu
 
 
 def get_main_keyboard() -> ReplyKeyboardMarkup:
-    """Главная закрепленная клавиатура (MVP - только помощь)"""
+    """Главная закрепленная клавиатура."""
     keyboard = [
-        ["❓ Помощь"]
+        ["📹 Отправить видео", "❓ Помощь"],
+        ["📖 Теория", "ℹ️ О боте"],
     ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
 
 
 def get_overlay_selection_keyboard() -> InlineKeyboardMarkup:
@@ -62,14 +63,17 @@ def get_next_actions_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
-
-    if pose_quality < 50:
-        recommendations.append("🕸️ **Метрики** - техника требует внимания, посмотри на паутинку")
-
-    if motion_intensity < 30:
-        recommendations.append("⏱️ **Скорость** - много думаешь на трассе, проверь карту решений")
-
-    if not recommendations:
-        recommendations.append("🎯 **Полный анализ** - техника хорошая, запишем красивое видео!")
-
-    return "\n".join(recommendations[:3])  # Максимум 3 рекомендации (закон малых чисел)
+def get_theory_keyboard() -> InlineKeyboardMarkup:
+    """Инлайн-клавиатура теории по метрикам."""
+    keyboard = [
+        [InlineKeyboardButton("🦶 QF — Спокойные ноги", callback_data="theory_qf")],
+        [InlineKeyboardButton("🦴 HP — Положение таза", callback_data="theory_hp")],
+        [InlineKeyboardButton("↗️ DM — Диагональная координация", callback_data="theory_dm")],
+        [InlineKeyboardButton("👁️ RR — Считывание маршрута", callback_data="theory_rr")],
+        [InlineKeyboardButton("🎵 RT — Ритм движений", callback_data="theory_rt")],
+        [InlineKeyboardButton("💥 DC — Контроль динамики", callback_data="theory_dc")],
+        [InlineKeyboardButton("🤲 GR — Плавность перехватов", callback_data="theory_gr")],
+        [InlineKeyboardButton("🎯 Как считается уровень", callback_data="theory_grade")],
+        [InlineKeyboardButton("📊 Что значат баллы", callback_data="theory_scores")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
