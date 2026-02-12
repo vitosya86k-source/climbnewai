@@ -112,7 +112,8 @@ class VideoOverlays:
         frame: np.ndarray,
         landmarks,
         overlay_type: str,
-        frame_data: Dict[str, Any]
+        frame_data: Dict[str, Any],
+        update_history: bool = True
     ) -> np.ndarray:
         """
         Применить визуализацию к кадру
@@ -124,7 +125,7 @@ class VideoOverlays:
             frame_data: данные анализа кадра
         """
         # Обновляем историю
-        if landmarks:
+        if landmarks and update_history:
             self._update_history(landmarks, frame.shape[:2], frame_data)
 
         # Выбираем тип визуализации

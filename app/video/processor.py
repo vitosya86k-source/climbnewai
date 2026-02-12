@@ -136,6 +136,8 @@ class VideoProcessor:
             
             frame_number = 0
             processed_count = 0
+            last_landmarks = None
+            last_frame_data = None
             
             # Сброс состояния анализаторов (локальные объекты, но на всякий случай)
             bv_metrics.reset()
@@ -229,11 +231,14 @@ class VideoProcessor:
 
                     # Отрисовка выбранного типа визуализации
                     if results.pose_landmarks:
+                        last_landmarks = results.pose_landmarks
+                        last_frame_data = frame_data
                         frame = overlays.apply_overlay(
                             frame,
                             results.pose_landmarks,
                             output_overlay,
-                            frame_data
+                            frame_data,
+                            update_history=True,
                         )
                     else:
                         # Если landmarks нет, все равно обновляем историю с None
@@ -241,6 +246,17 @@ class VideoProcessor:
                         overlays._update_history(None, frame.shape[:2], frame_data)
                     
                     processed_count += 1
+                else:
+                    # Чтобы не было мерцания при FRAME_SKIP > 1: рисуем оверлей по последним
+                    # валидным landmarks, но НЕ обновляем историю.
+                    if last_landmarks is not None and last_frame_data is not None:
+                        frame = overlays.apply_overlay(
+                            frame,
+                            last_landmarks,
+                            output_overlay,
+                            last_frame_data,
+                            update_history=False,
+                        )
                 
                 # Записываем кадр
                 out.write(frame)
