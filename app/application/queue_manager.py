@@ -5,6 +5,7 @@ import gc
 import logging
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -53,8 +54,9 @@ def start_queue_workers(application) -> None:
         return
     worker_count = max(1, MAX_CONCURRENT_JOBS)
     for i in range(worker_count):
-        # После запуска приложения можно использовать create_task — PTB корректно завершит задачи.
-        task = application.create_task(_worker_loop(application, i + 1))
+        # post_init вызывается до полного старта Application, поэтому запускаем задачи через asyncio.
+        # Остановку делаем вручную в stop_queue_workers().
+        task = asyncio.create_task(_worker_loop(application, i + 1))
         WORKER_TASKS.append(task)
     WORKERS_STARTED = True
     logger.info(f"✅ Запущено воркеров очереди: {worker_count}")
@@ -161,9 +163,14 @@ async def _process_job(application, job: VideoJob, worker_id: int) -> None:
 
             processor = VideoProcessor()
 
+            last_sent_progress = -1
+            last_status_update_monotonic = 0.0
+
             def progress_callback(progress, stage):
+                nonlocal last_sent_progress, last_status_update_monotonic
                 if progress is None:
                     try:
+                        logger.info(f"Worker {worker_id} stage: {stage}")
                         asyncio.run_coroutine_threadsafe(
                             bot.edit_message_text(
                                 chat_id=chat_id,
@@ -179,15 +186,29 @@ async def _process_job(application, job: VideoJob, worker_id: int) -> None:
                         pass
                     return
 
-                if progress < 20 or progress % 20 == 0:
+                progress_int = max(0, min(100, int(progress)))
+                now = time.monotonic()
+                should_update = (
+                    progress_int <= 20
+                    or progress_int - last_sent_progress >= 5
+                    or now - last_status_update_monotonic >= 20
+                    or progress_int == 100
+                )
+
+                if should_update:
+                    last_sent_progress = progress_int
+                    last_status_update_monotonic = now
                     try:
+                        logger.info(
+                            f"Worker {worker_id} progress: {progress_int}% | stage: {stage}"
+                        )
                         asyncio.run_coroutine_threadsafe(
                             bot.edit_message_text(
                                 chat_id=chat_id,
                                 message_id=job.status_message_id,
                                 text=(
                                     "🎬 Обрабатываю видео...\n"
-                                    f"{'█' * (progress // 10)}{'░' * (10 - progress // 10)} {progress}%\n\n"
+                                    f"{'█' * (progress_int // 10)}{'░' * (10 - progress_int // 10)} {progress_int}%\n\n"
                                     f"{stage}"
                                 ),
                             ),
