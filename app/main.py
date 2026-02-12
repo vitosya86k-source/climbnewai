@@ -13,7 +13,7 @@ from telegram.ext import Application
 from app.config import TELEGRAM_BOT_TOKEN
 from app.bot import setup_handlers
 from app.utils import setup_logger
-from app.application.queue_manager import start_queue_workers
+from app.application.queue_manager import start_queue_workers, stop_queue_workers
 
 # Настройка логирования
 logger = setup_logger("climbai", logging.INFO)
@@ -37,6 +37,7 @@ async def post_init(application: Application) -> None:
 
 async def post_shutdown(application: Application) -> None:
     """Действия при остановке бота"""
+    await stop_queue_workers()
     logger.info("🛑 Остановка бота...")
 
 

@@ -8,8 +8,6 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
-
-import cv2
 from telegram.error import NetworkError
 
 from app.config import (
@@ -41,6 +39,7 @@ class VideoJob:
 JOB_QUEUE: asyncio.Queue = asyncio.Queue()
 WORKERS_STARTED = False
 PROCESSING_SEMAPHORE = asyncio.Semaphore(1)
+WORKER_TASKS: list[asyncio.Task] = []
 
 
 async def enqueue_job(job: VideoJob) -> int:
@@ -54,42 +53,60 @@ def start_queue_workers(application) -> None:
         return
     worker_count = max(1, MAX_CONCURRENT_JOBS)
     for i in range(worker_count):
-        # Не используем Application.create_task до полного старта, чтобы избежать PTBUserWarning.
-        asyncio.create_task(_worker_loop(application, i + 1))
+        # После запуска приложения можно использовать create_task — PTB корректно завершит задачи.
+        task = application.create_task(_worker_loop(application, i + 1))
+        WORKER_TASKS.append(task)
     WORKERS_STARTED = True
     logger.info(f"✅ Запущено воркеров очереди: {worker_count}")
 
 
+async def stop_queue_workers() -> None:
+    """Корректная остановка воркеров при shutdown."""
+    global WORKERS_STARTED
+    if not WORKER_TASKS:
+        WORKERS_STARTED = False
+        return
+    for task in WORKER_TASKS:
+        task.cancel()
+    await asyncio.gather(*WORKER_TASKS, return_exceptions=True)
+    WORKER_TASKS.clear()
+    WORKERS_STARTED = False
+
+
 async def _worker_loop(application, worker_id: int) -> None:
     logger.info(f"🔧 Очередь: воркер {worker_id} запущен")
-    while True:
-        job: VideoJob = await JOB_QUEUE.get()
-        try:
-            await asyncio.wait_for(
-                _process_job(application, job, worker_id),
-                timeout=PROCESSING_TIMEOUT_SEC,
-            )
-        except asyncio.TimeoutError:
-            logger.error(
-                f"Таймаут обработки job в воркере {worker_id} (> {PROCESSING_TIMEOUT_SEC}s)",
-                exc_info=True
-            )
+    try:
+        while True:
+            job: VideoJob = await JOB_QUEUE.get()
             try:
-                await application.bot.send_message(
-                    chat_id=job.chat_id,
-                    text=(
-                        "⏰ Обработка заняла слишком много времени.\n\n"
-                        "Попробуйте более короткое видео (до 1 минуты) или отправьте повторно."
-                    ),
+                await asyncio.wait_for(
+                    _process_job(application, job, worker_id),
+                    timeout=PROCESSING_TIMEOUT_SEC,
                 )
-            except Exception:
-                pass
-        except Exception as e:
-            logger.error(f"Ошибка обработки job в воркере {worker_id}: {e}", exc_info=True)
-        finally:
-            # Явно освобождаем память после каждой задачи.
-            gc.collect()
-            JOB_QUEUE.task_done()
+            except asyncio.TimeoutError:
+                logger.error(
+                    f"Таймаут обработки job в воркере {worker_id} (> {PROCESSING_TIMEOUT_SEC}s)",
+                    exc_info=True
+                )
+                try:
+                    await application.bot.send_message(
+                        chat_id=job.chat_id,
+                        text=(
+                            "⏰ Обработка заняла слишком много времени.\n\n"
+                            "Попробуйте более короткое видео (до 1 минуты) или отправьте повторно."
+                        ),
+                    )
+                except Exception:
+                    pass
+            except Exception as e:
+                logger.error(f"Ошибка обработки job в воркере {worker_id}: {e}", exc_info=True)
+            finally:
+                # Явно освобождаем память после каждой задачи.
+                gc.collect()
+                JOB_QUEUE.task_done()
+    except asyncio.CancelledError:
+        logger.info(f"🛑 Воркер {worker_id} остановлен")
+        raise
 
 
 async def _process_job(application, job: VideoJob, worker_id: int) -> None:
@@ -282,147 +299,139 @@ def _try_compress_video_for_telegram(input_path: Path, max_mb: int) -> Optional[
     Сжимает видео для отправки в Telegram.
     Возвращает путь к сжатому файлу, если он в лимите; иначе None.
     """
-    # Сначала пробуем ffmpeg (лучшее сжатие при сопоставимом качестве)
+    # Сжимаем через ffmpeg (стабильный mp4 для Telegram)
     ffmpeg_bin = shutil.which("ffmpeg")
     ffprobe_bin = shutil.which("ffprobe")
-    if ffmpeg_bin and ffprobe_bin:
-        output_path = input_path.with_name(f"{input_path.stem}_tg.mp4")
-        try:
-            probe = subprocess.run(
-                [
-                    ffprobe_bin,
-                    "-v",
-                    "error",
-                    "-show_entries",
-                    "format=duration",
-                    "-of",
-                    "default=noprint_wrappers=1:nokey=1",
-                    str(input_path),
-                ],
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=20,
-            )
-            duration = float(probe.stdout.strip()) if probe.stdout.strip() else 60.0
-            duration = max(1.0, duration)
-            target_bitrate = int((max_mb * 8 * 1024 * 1024) / duration * 0.9)
-            target_bitrate = min(target_bitrate, 4_000_000)
-
-            subprocess.run(
-                [
-                    ffmpeg_bin,
-                    "-y",
-                    "-i",
-                    str(input_path),
-                    "-c:v",
-                    "libx264",
-                    "-b:v",
-                    str(target_bitrate),
-                    "-maxrate",
-                    str(int(target_bitrate * 1.2)),
-                    "-bufsize",
-                    str(int(target_bitrate * 2)),
-                    "-preset",
-                    "fast",
-                    "-c:a",
-                    "aac",
-                    "-b:a",
-                    "128k",
-                    "-movflags",
-                    "+faststart",
-                    str(output_path),
-                ],
-                capture_output=True,
-                check=False,
-                timeout=180,
-            )
-            if _file_size_mb(output_path) <= float(max_mb):
-                return output_path
-
-            output_small = input_path.with_name(f"{input_path.stem}_tg_720.mp4")
-            subprocess.run(
-                [
-                    ffmpeg_bin,
-                    "-y",
-                    "-i",
-                    str(input_path),
-                    "-vf",
-                    "scale=-2:720",
-                    "-c:v",
-                    "libx264",
-                    "-b:v",
-                    str(max(400_000, target_bitrate // 2)),
-                    "-preset",
-                    "fast",
-                    "-c:a",
-                    "aac",
-                    "-b:a",
-                    "96k",
-                    "-movflags",
-                    "+faststart",
-                    str(output_small),
-                ],
-                capture_output=True,
-                check=False,
-                timeout=180,
-            )
-            _safe_unlink(output_path)
-            if _file_size_mb(output_small) <= float(max_mb):
-                return output_small
-            _safe_unlink(output_small)
-        except subprocess.TimeoutExpired:
-            logger.warning("ffmpeg compression timeout reached; fallback to OpenCV compression")
-            _safe_unlink(output_path)
-        except Exception:
-            _safe_unlink(output_path)
-
-    # Fallback: сжатие через OpenCV (если ffmpeg недоступен)
-    cap = cv2.VideoCapture(str(input_path))
-    if not cap.isOpened():
-        cap.release()
+    if not ffmpeg_bin or not ffprobe_bin:
+        logger.warning("ffmpeg/ffprobe not found; skip compression")
         return None
-
-    fps = cap.get(cv2.CAP_PROP_FPS) or 25
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
-
-    if width <= 0 or height <= 0:
-        cap.release()
-        return None
-
-    target_max_side = 720
-    scale = min(1.0, target_max_side / max(width, height))
-    out_w = max(2, int(width * scale) // 2 * 2)
-    out_h = max(2, int(height * scale) // 2 * 2)
-    out_fps = min(float(fps), 20.0)
-
     output_path = input_path.with_name(f"{input_path.stem}_tg.mp4")
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    writer = cv2.VideoWriter(str(output_path), fourcc, out_fps, (out_w, out_h))
-
+    output_small = input_path.with_name(f"{input_path.stem}_tg_720.mp4")
     try:
-        frame_idx = 0
-        step = max(1, int(round(float(fps) / out_fps)))
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            if frame_idx % step != 0:
-                frame_idx += 1
-                continue
-            resized = cv2.resize(frame, (out_w, out_h), interpolation=cv2.INTER_AREA)
-            writer.write(resized)
-            frame_idx += 1
-    finally:
-        writer.release()
-        cap.release()
+        probe = subprocess.run(
+            [
+                ffprobe_bin,
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(input_path),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=20,
+        )
+        duration = float(probe.stdout.strip()) if probe.stdout.strip() else 60.0
+        duration = max(1.0, duration)
+        target_bitrate = int((max_mb * 8 * 1024 * 1024) / duration * 0.9)
+        target_bitrate = min(target_bitrate, 4_000_000)
 
-    if _file_size_mb(output_path) <= float(max_mb):
-        return output_path
+        subprocess.run(
+            [
+                ffmpeg_bin,
+                "-y",
+                "-i",
+                str(input_path),
+                "-c:v",
+                "libx264",
+                "-b:v",
+                str(target_bitrate),
+                "-maxrate",
+                str(int(target_bitrate * 1.2)),
+                "-bufsize",
+                str(int(target_bitrate * 2)),
+                "-preset",
+                "fast",
+                "-pix_fmt",
+                "yuv420p",
+                "-profile:v",
+                "main",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "128k",
+                "-movflags",
+                "+faststart",
+                str(output_path),
+            ],
+            capture_output=True,
+            check=False,
+            timeout=180,
+        )
+        if _file_size_mb(output_path) <= float(max_mb) and _is_playable_video(output_path, ffprobe_bin):
+            return output_path
 
+        subprocess.run(
+            [
+                ffmpeg_bin,
+                "-y",
+                "-i",
+                str(input_path),
+                "-vf",
+                "scale=-2:720",
+                "-c:v",
+                "libx264",
+                "-b:v",
+                str(max(400_000, target_bitrate // 2)),
+                "-preset",
+                "fast",
+                "-pix_fmt",
+                "yuv420p",
+                "-profile:v",
+                "main",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "96k",
+                "-movflags",
+                "+faststart",
+                str(output_small),
+            ],
+            capture_output=True,
+            check=False,
+            timeout=180,
+        )
+        if _file_size_mb(output_small) <= float(max_mb) and _is_playable_video(output_small, ffprobe_bin):
+            _safe_unlink(output_path)
+            return output_small
+    except subprocess.TimeoutExpired:
+        logger.warning("ffmpeg compression timeout reached")
+    except Exception:
+        logger.exception("Compression failed")
     _safe_unlink(output_path)
+    _safe_unlink(output_small)
     return None
+
+
+def _is_playable_video(path: Path, ffprobe_bin: str) -> bool:
+    """Проверка, что файл реально читается и содержит видеопоток."""
+    if not path.exists() or path.stat().st_size <= 0:
+        return False
+    try:
+        proc = subprocess.run(
+            [
+                ffprobe_bin,
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=codec_name,width,height",
+                "-of",
+                "default=noprint_wrappers=1",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        return proc.returncode == 0 and "codec_name=" in proc.stdout
+    except Exception:
+        return False
 
 
 async def _send_result_video_with_fallback(
